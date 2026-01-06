@@ -2,6 +2,8 @@
 
 A Go server that proxies requests to Google's Gemini API with optional context caching. The server reduces token costs by caching your project files once and reusing them across multiple requests. It exposes OpenAI-compatible endpoints for integration with any IDE or tool.
 
+**Version:** 1.2.0
+
 ## Requirements
 
 - Go 1.21 or higher
@@ -81,6 +83,7 @@ This starts the server on port 8080. Open `http://localhost:8080` in your browse
 -cache-id string  Use an existing cache ID directly
 -list-models      List available models and exit
 -debug            Save responses to debug_last_response.txt
+-version          Show version and exit
 ```
 
 ### Examples

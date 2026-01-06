@@ -29,6 +29,7 @@ var assetsFS embed.FS
 
 // --- CONFIGURATION ---
 const (
+	Version       = "1.2.0"
 	DefaultPort   = ":8080"
 	DefaultModel  = "gemini-2.0-flash"
 	WorkDir       = "."
@@ -147,7 +148,13 @@ func main() {
 	cacheIDFlag := flag.String("cache-id", "", "Existing Cache ID to use directly")
 	listModelsCmd := flag.Bool("list-models", false, "List available models and exit")
 	debugFlag := flag.Bool("debug", false, "Enable debug mode (saves responses to file)")
+	versionFlag := flag.Bool("version", false, "Show version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("Gemini Context Caching Proxy v%s\n", Version)
+		os.Exit(0)
+	}
 
 	serverPort = *port
 	debugMode = *debugFlag
