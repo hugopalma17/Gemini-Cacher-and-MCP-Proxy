@@ -326,6 +326,12 @@ BUILD_STATUS=$?
 
 if [ $BUILD_STATUS -eq 0 ]; then
     echo -e "\r${GREEN}✓${NC} Server built successfully!"
+    # Make server executable (no sudo needed - we own the file)
+    if chmod +x server 2>/dev/null; then
+        echo -e "${GREEN}✓${NC} Server binary is executable"
+    else
+        echo -e "${YELLOW}⚠${NC} Could not set executable permissions (this is usually fine)"
+    fi
     echo -e "\n${GREEN}=== Installation Complete ===${NC}"
     echo -e "\n${BLUE}Server binary:${NC} ./server"
     echo -e "${BLUE}Usage examples:${NC}"

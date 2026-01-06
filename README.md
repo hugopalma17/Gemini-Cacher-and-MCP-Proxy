@@ -155,13 +155,25 @@ All integrations use the OpenAI-compatible endpoint at `http://localhost:8080/v1
 
 ### Cursor
 
-Add to `~/.cursor/mcp.json`:
+Cursor's AI chat uses OpenAI-compatible endpoints. Configure it in Cursor settings:
 
+1. Open Cursor Settings (Cursor menu > Settings > Cursor Settings)
+2. Navigate to the AI/Model settings section
+3. Configure:
+   - **Provider**: OpenAI Compatible / Custom OpenAI
+   - **Base URL**: `http://localhost:8080/v1`
+   - **API Key**: Any value (e.g., `x`) - the proxy ignores this
+   - **Model**: `gpt-4` (proxy translates to your configured Gemini model)
+4. Save and restart Cursor if required
+5. Ensure the proxy server is running on port 8080
+
+**Note**: For MCP tools/extensions, you can use the MCP bridge at `cmd/mcp/main.go` by adding to `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
     "gemini-brain": {
-      "command": "/path/to/mcp"
+      "command": "go",
+      "args": ["run", "/path/to/cmd/mcp/main.go"]
     }
   }
 }
@@ -209,14 +221,15 @@ Edit `~/.config/zed/settings.json`:
 
 ### Antigravity
 
-In settings, configure:
-
-```
-Provider: OpenAI Compatible
-Base URL: http://localhost:8080/v1
-API Key: not-needed
-Model: gpt-4
-```
+1. Open Antigravity settings (usually via menu or preferences)
+2. Navigate to the AI/Model configuration section
+3. Configure the following settings:
+   - **Provider**: Select "OpenAI Compatible" or "Custom OpenAI"
+   - **Base URL**: `http://localhost:8080/v1`
+   - **API Key**: Enter any value (e.g., `x` or `not-needed`) - the proxy ignores this
+   - **Model**: `gpt-4` (or any model name - the proxy will translate to your configured Gemini model)
+4. Save the settings and restart Antigravity if required
+5. Ensure the proxy server is running on port 8080 before using Antigravity
 
 ### Claude Desktop
 

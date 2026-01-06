@@ -130,15 +130,17 @@
         .modal-content code {
             display: block;
             background: #000;
-            padding: 0.6rem 0.8rem;
+            padding: 0.4rem 0.5rem;
             border-radius: 6px;
             margin: 0;
             color: #38bdf8;
             font-family: monospace;
-            font-size: 0.85rem;
-            line-height: 1.4;
+            font-size: 0.65rem;
+            line-height: 1.3;
             white-space: pre-wrap;
             overflow-x: auto;
+            word-break: break-all;
+            max-width: 100%;
         }
         .close-btn {
             position: absolute;
@@ -422,8 +424,14 @@
             </table>
 
             <h3>1. <i class="uil uil-desktop"></i> Cursor</h3>
-            <p>Add MCP server to <code style="display:inline; margin:0;">~/.cursor/mcp.json</code>:</p>
-            <pre><code>{"mcpServers":{"gemini-brain":{"command":"go","args":["run","{{.MCPPath}}"]}}}</code></pre>
+            <p>Open Cursor Settings and configure:</p>
+            <ul style="margin: 0.5rem 0; padding-left: 1.5rem; font-size: 0.9rem;">
+                <li><strong>Provider:</strong> OpenAI Compatible / Custom OpenAI</li>
+                <li><strong>Base URL:</strong> <code style="display:inline; margin:0;">http://localhost{{.ServerPort}}/v1</code></li>
+                <li><strong>API Key:</strong> Any value (e.g., <code style="display:inline; margin:0;">x</code>) - ignored by proxy</li>
+                <li><strong>Model:</strong> <code style="display:inline; margin:0;">gpt-4</code> (proxy translates to Gemini)</li>
+            </ul>
+            <p style="margin-top: 0.5rem; font-size: 0.85rem; color: rgba(255,255,255,0.6);">Note: For MCP tools, use <code style="display:inline; margin:0;">~/.cursor/mcp.json</code> with the MCP bridge.</p>
 
             <h3>2. <i class="uil uil-file-edit-alt"></i> VS Code + Continue.dev</h3>
             <p>Edit <code style="display:inline; margin:0;">~/.continue/config.yaml</code> (or use Continue's settings UI):</p>
@@ -438,9 +446,14 @@ models:
     apiKey: x</code></pre>
 
             <h3>3. <i class="uil uil-atom"></i> Antigravity</h3>
-            <pre><code>Provider: OpenAI Compatible
-Base URL: http://localhost{{.ServerPort}}/v1
-API Key: x | Model: gpt-4</code></pre>
+            <p>Open Antigravity settings and configure:</p>
+            <ul style="margin: 0.5rem 0; padding-left: 1.5rem; font-size: 0.9rem;">
+                <li><strong>Provider:</strong> OpenAI Compatible / Custom OpenAI</li>
+                <li><strong>Base URL:</strong> <code style="display:inline; margin:0;">http://localhost{{.ServerPort}}/v1</code></li>
+                <li><strong>API Key:</strong> Any value (e.g., <code style="display:inline; margin:0;">x</code>) - ignored by proxy</li>
+                <li><strong>Model:</strong> <code style="display:inline; margin:0;">gpt-4</code> (proxy translates to Gemini)</li>
+            </ul>
+            <p style="margin-top: 0.5rem; font-size: 0.85rem; color: rgba(255,255,255,0.6);">Note: Ensure the proxy server is running before using Antigravity.</p>
 
             <h3>4. <i class="uil uil-bolt"></i> Zed Editor</h3>
             <p>Edit <code style="display:inline; margin:0;">~/.config/zed/settings.json</code>:</p>
