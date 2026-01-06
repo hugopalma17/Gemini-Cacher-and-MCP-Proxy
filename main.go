@@ -68,6 +68,7 @@ var modelCosts = map[string]struct{ In, Out float64 }{
 	"gemini-2.0-pro-exp-02-05":            {0.00, 0.00},
 }
 
+
 type ChatRequest struct {
 	SessionID  string `json:"session_id"`
 	Model      string `json:"model"`
@@ -236,6 +237,7 @@ func main() {
 		cacheModel = *modelName
 		logMsg("--- Running in Clean Mode (no cache) ---")
 	}
+
 
 	// 3. START SERVER
 	// Core endpoints
@@ -443,23 +445,65 @@ type OpenAIChatResponse struct {
 }
 
 func handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
-	// Return a minimal OpenAI-compatible model list
+	// Return actual Gemini models (excluding experimental)
+	// Users can select any model from this list in Continue.dev
+	var modelList []map[string]any
+
+	// Fetch real models from Gemini API
+	for m, err := range client.Models.All(ctx) {
+		if err != nil {
+			break
+		}
+		// Check if model supports generateContent
+		supportsGenerate := false
+		for _, action := range m.SupportedActions {
+			if action == "generateContent" {
+				supportsGenerate = true
+				break
+			}
+		}
+
+		if supportsGenerate {
+			geminiID := strings.TrimPrefix(m.Name, "models/")
+			
+			// Skip banned experimental models
+			if strings.Contains(geminiID, "image-generation") || 
+			   strings.Contains(geminiID, "-exp") || 
+			   strings.Contains(geminiID, "experimental") ||
+			   strings.Contains(geminiID, "2.0-flash-exp") ||
+			   strings.Contains(geminiID, "2.0-pro-exp") {
+				continue
+			}
+
+			// Return actual Gemini model ID - Continue.dev will show these in dropdown
+			modelList = append(modelList, map[string]any{
+				"id":       geminiID,
+				"object":   "model",
+				"created":  time.Now().Unix(),
+				"owned_by": "gemini-proxy",
+			})
+		}
+	}
+
+	// Fallback if no models found
+	if len(modelList) == 0 {
+		defaultModel := cacheModel
+		if defaultModel == "" {
+			defaultModel = DefaultModel
+		}
+		modelList = []map[string]any{
+			{
+				"id":       defaultModel,
+				"object":   "model",
+				"created":  time.Now().Unix(),
+				"owned_by": "gemini-proxy",
+			},
+		}
+	}
+
 	response := map[string]any{
 		"object": "list",
-		"data": []map[string]any{
-			{
-				"id":       "gpt-4",
-				"object":   "model",
-				"created":  time.Now().Unix(),
-				"owned_by": "gemini-proxy",
-			},
-			{
-				"id":       "gpt-3.5-turbo",
-				"object":   "model",
-				"created":  time.Now().Unix(),
-				"owned_by": "gemini-proxy",
-			},
-		},
+		"data":   modelList,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -485,13 +529,29 @@ func handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Map to our internal model
-	model := cacheModel
-	if model == "" {
-		model = DefaultModel
+	// Use model directly if it's a valid Gemini model ID, otherwise use cached/default
+	model := req.Model
+	
+	// Check if it's a Gemini model ID and not banned
+	if strings.HasPrefix(model, "gemini-") {
+		// Block experimental models
+		if strings.Contains(model, "-exp") || 
+		   strings.Contains(model, "experimental") ||
+		   strings.Contains(model, "2.0-flash-exp") ||
+		   strings.Contains(model, "2.0-pro-exp") {
+			http.Error(w, "Experimental models are not allowed", 400)
+			return
+		}
+		// Use the specified Gemini model
+	} else {
+		// Not a Gemini model ID (e.g., "gpt-4"), use cached model or default
+		model = cacheModel
+		if model == "" {
+			model = DefaultModel
+		}
 	}
 
-	logMsg(">>> OpenAI /v1/chat/completions | Model: %s | Msg: %.50s...", model, userMsg)
+	logMsg(">>> OpenAI /v1/chat/completions | Model: %s | Agentic: true | Msg: %.50s...", model, userMsg)
 
 	// Create chat request
 	chatReq := ChatRequest{
@@ -514,8 +574,47 @@ func handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	if cacheName != "" {
-		config.CachedContent = cacheName
+	// Enable agentic tools for OpenAI endpoint (always enabled)
+	fileTools := []*genai.FunctionDeclaration{
+		{
+			Name:        "write_file",
+			Description: "Write or create a file with the specified content",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"path":    {Type: genai.TypeString, Description: "Relative path to the file"},
+					"content": {Type: genai.TypeString, Description: "Content to write to the file"},
+				},
+				Required: []string{"path", "content"},
+			},
+		},
+		{
+			Name:        "list_files",
+			Description: "List files in the current directory or subdirectory",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"path": {Type: genai.TypeString, Description: "Relative path to list (use '.' for current)"},
+				},
+			},
+		},
+		{
+			Name:        "read_file",
+			Description: "Read the contents of a specific file",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"path": {Type: genai.TypeString, Description: "Relative path to the file"},
+				},
+				Required: []string{"path"},
+			},
+		},
+	}
+
+	// Skip cache when tools are enabled (Gemini API limitation)
+	// Tools are always enabled for OpenAI endpoint, so skip cache
+	config.Tools = []*genai.Tool{
+		{FunctionDeclarations: fileTools},
 	}
 
 	chat, err := client.Chats.Create(ctx, model, config, history)
@@ -524,13 +623,56 @@ func handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle tool calls in a loop (similar to handleChat)
+	var responseText string
 	res, err := chat.SendMessage(ctx, genai.Part{Text: userMsg})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	responseText := res.Text()
+	for {
+		funcCalls := res.FunctionCalls()
+		if len(funcCalls) == 0 {
+			responseText = res.Text()
+			break
+		}
+
+		// Execute function calls
+		var funcResponses []genai.Part
+		for _, funcCall := range funcCalls {
+			var funcResult map[string]any
+			args := funcCall.Args
+
+			if funcCall.Name == "list_files" {
+				p, _ := args["path"].(string)
+				funcResult = toolListFiles(p)
+			} else if funcCall.Name == "read_file" {
+				p, _ := args["path"].(string)
+				funcResult = toolReadFile(p)
+			} else if funcCall.Name == "write_file" {
+				p, _ := args["path"].(string)
+				c, _ := args["content"].(string)
+				funcResult = toolWriteFile(p, c)
+			} else {
+				funcResult = map[string]any{"error": "unknown tool"}
+			}
+
+			funcResponses = append(funcResponses, genai.Part{
+				FunctionResponse: &genai.FunctionResponse{
+					Name:     funcCall.Name,
+					Response: funcResult,
+				},
+			})
+		}
+
+		res, err = chat.SendMessage(ctx, funcResponses...)
+		if err != nil {
+			responseText = "Error after tool execution: " + err.Error()
+			break
+		}
+	}
+
 	writeDebugResponse(responseText)
 
 	// Store history
@@ -576,12 +718,29 @@ func handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleOpenAIStream(w http.ResponseWriter, r *http.Request, userMsg, reqModel string) {
-	model := cacheModel
-	if model == "" {
-		model = DefaultModel
+	// Use model directly if it's a valid Gemini model ID, otherwise use cached/default
+	model := reqModel
+	
+	// Check if it's a Gemini model ID and not banned
+	if strings.HasPrefix(model, "gemini-") {
+		// Block experimental models
+		if strings.Contains(model, "-exp") || 
+		   strings.Contains(model, "experimental") ||
+		   strings.Contains(model, "2.0-flash-exp") ||
+		   strings.Contains(model, "2.0-pro-exp") {
+			fmt.Fprintf(w, "data: {\"error\": \"Experimental models are not allowed\"}\n\n")
+			return
+		}
+		// Use the specified Gemini model
+	} else {
+		// Not a Gemini model ID (e.g., "gpt-4"), use cached model or default
+		model = cacheModel
+		if model == "" {
+			model = DefaultModel
+		}
 	}
 
-	logMsg(">>> OpenAI Stream | Model: %s | Msg: %.50s...", model, userMsg)
+	logMsg(">>> OpenAI Stream | Model: %s | Agentic: true | Msg: %.50s...", model, userMsg)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -602,8 +761,46 @@ func handleOpenAIStream(w http.ResponseWriter, r *http.Request, userMsg, reqMode
 		},
 	}
 
-	if cacheName != "" {
-		config.CachedContent = cacheName
+	// Enable agentic tools for OpenAI endpoint (always enabled)
+	fileTools := []*genai.FunctionDeclaration{
+		{
+			Name:        "write_file",
+			Description: "Write or create a file with the specified content",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"path":    {Type: genai.TypeString, Description: "Relative path to the file"},
+					"content": {Type: genai.TypeString, Description: "Content to write to the file"},
+				},
+				Required: []string{"path", "content"},
+			},
+		},
+		{
+			Name:        "list_files",
+			Description: "List files in the current directory or subdirectory",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"path": {Type: genai.TypeString, Description: "Relative path to list (use '.' for current)"},
+				},
+			},
+		},
+		{
+			Name:        "read_file",
+			Description: "Read the contents of a specific file",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"path": {Type: genai.TypeString, Description: "Relative path to the file"},
+				},
+				Required: []string{"path"},
+			},
+		},
+	}
+
+	// Skip cache when tools are enabled (Gemini API limitation)
+	config.Tools = []*genai.Tool{
+		{FunctionDeclarations: fileTools},
 	}
 
 	mu.Lock()
@@ -617,38 +814,120 @@ func handleOpenAIStream(w http.ResponseWriter, r *http.Request, userMsg, reqMode
 		return
 	}
 
-	// Use streaming with Go 1.23+ range over iterator
+	// For tool-enabled chats, use non-streaming to handle function calls properly
+	// Then stream the final response
 	fullResponse := ""
+	currentMsg := userMsg
 
-	for resp, err := range chat.SendMessageStream(ctx, genai.Part{Text: userMsg}) {
+	for {
+		// Use non-streaming to detect function calls
+		res, err := chat.SendMessage(ctx, genai.Part{Text: currentMsg})
 		if err != nil {
 			fmt.Fprintf(w, "data: {\"error\": \"%s\"}\n\n", err.Error())
 			flusher.Flush()
-			break
+			return
 		}
 
-		text := resp.Text()
-		fullResponse += text
-
-		// Send SSE chunk in OpenAI format
-		chunk := map[string]any{
-			"id":      "chatcmpl-" + fmt.Sprintf("%d", time.Now().UnixNano()),
-			"object":  "chat.completion.chunk",
-			"created": time.Now().Unix(),
-			"model":   model,
-			"choices": []map[string]any{
-				{
-					"index": 0,
-					"delta": map[string]string{
-						"content": text,
+		// Check for function calls
+		funcCalls := res.FunctionCalls()
+		if len(funcCalls) > 0 {
+			// Send function call notification in OpenAI format
+			for _, funcCall := range funcCalls {
+				chunk := map[string]any{
+					"id":      "chatcmpl-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+					"object":  "chat.completion.chunk",
+					"created": time.Now().Unix(),
+					"model":   model,
+					"choices": []map[string]any{
+						{
+							"index": 0,
+							"delta": map[string]any{
+								"role": "assistant",
+								"tool_calls": []map[string]any{
+									{
+										"id":   funcCall.Name + "-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+										"type": "function",
+										"function": map[string]any{
+											"name":      funcCall.Name,
+											"arguments": funcCall.Args,
+										},
+									},
+								},
+							},
+							"finish_reason": "tool_calls",
+						},
 					},
-					"finish_reason": nil,
-				},
-			},
+				}
+				data, _ := json.Marshal(chunk)
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+			}
+
+			// Execute function calls
+			var funcResponses []genai.Part
+			for _, funcCall := range funcCalls {
+				var funcResult map[string]any
+				args := funcCall.Args
+
+				if funcCall.Name == "list_files" {
+					p, _ := args["path"].(string)
+					funcResult = toolListFiles(p)
+				} else if funcCall.Name == "read_file" {
+					p, _ := args["path"].(string)
+					funcResult = toolReadFile(p)
+				} else if funcCall.Name == "write_file" {
+					p, _ := args["path"].(string)
+					c, _ := args["content"].(string)
+					funcResult = toolWriteFile(p, c)
+				} else {
+					funcResult = map[string]any{"error": "unknown tool"}
+				}
+
+				funcResponses = append(funcResponses, genai.Part{
+					FunctionResponse: &genai.FunctionResponse{
+						Name:     funcCall.Name,
+						Response: funcResult,
+					},
+				})
+			}
+
+			// Continue with function responses
+			currentMsg = ""
+			res, err = chat.SendMessage(ctx, funcResponses...)
+			if err != nil {
+				fmt.Fprintf(w, "data: {\"error\": \"%s\"}\n\n", err.Error())
+				flusher.Flush()
+				return
+			}
+			continue
 		}
-		data, _ := json.Marshal(chunk)
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
+
+		// No function calls, stream the text response
+		responseText := res.Text()
+		fullResponse = responseText
+
+		// Stream the response character by character for real-time effect
+		for _, char := range responseText {
+			chunk := map[string]any{
+				"id":      "chatcmpl-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+				"object":  "chat.completion.chunk",
+				"created": time.Now().Unix(),
+				"model":   model,
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"delta": map[string]string{
+							"content": string(char),
+						},
+						"finish_reason": nil,
+					},
+				},
+			}
+			data, _ := json.Marshal(chunk)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		}
+		break
 	}
 
 	// Send final chunk
@@ -1270,8 +1549,12 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 		if supportsGenerate {
 			id := strings.TrimPrefix(m.Name, "models/")
 
-			// Skip problematic experimental image generation models
-			if strings.Contains(id, "image-generation") {
+			// Skip problematic experimental models
+			if strings.Contains(id, "image-generation") || 
+			   strings.Contains(id, "-exp") || 
+			   strings.Contains(id, "experimental") ||
+			   strings.Contains(id, "2.0-flash-exp") ||
+			   strings.Contains(id, "2.0-pro-exp") {
 				continue
 			}
 

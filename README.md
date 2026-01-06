@@ -152,18 +152,18 @@ Add to `~/.cursor/mcp.json`:
 
 ### VS Code with Continue.dev
 
-Edit `~/.continue/config.json`:
+Edit `~/.continue/config.yaml` (or use Continue's settings UI):
 
-```json
-{
-  "models": [{
-    "title": "Gemini",
-    "provider": "openai",
-    "model": "gpt-4",
-    "apiBase": "http://localhost:8080/v1",
-    "apiKey": "not-needed"
-  }]
-}
+```yaml
+name: Gemini Proxy
+version: 1.0.0
+schema: v1
+models:
+  - name: Gemini
+    provider: openai
+    model: gpt-4
+    apiBase: http://localhost:8080/v1
+    apiKey: not-needed
 ```
 
 ### Zed Editor

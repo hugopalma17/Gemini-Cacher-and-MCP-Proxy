@@ -163,6 +163,9 @@ The project now includes:
 - WebUI with file browser, model selection, search/agentic toggles
 - Image generation support with proper rendering
 - OpenAI-compatible endpoints for IDE integration
+- **Agentic mode support in OpenAI endpoints** (Continue.dev can use file tools)
+- **Model discovery** - Continue.dev auto-discovers Gemini models
+- **Experimental model filtering** - Blocks problematic 2.0 experimental models
 - Comprehensive logging and debugging
 - Single-binary deployment with embedded assets
 
@@ -178,6 +181,40 @@ history.md           - This file (new)
 .gitignore           - Updated for web/ directory
 ```
 
+### Phase 9: Continue.dev Integration and Agentic Mode
+
+**Problem**: Continue.dev integration wasn't working properly, and agentic mode (file tools) wasn't available through the OpenAI-compatible endpoint.
+
+- **Human**: Discovered that Continue.dev uses YAML config (`config.yaml`), not JSON, and that agentic tasks were failing.
+- **AI**: Fixed Continue.dev config format:
+  - Changed from `config.json` to `config.yaml`
+  - Added required `name`, `version`, and `schema: v1` fields
+  - Changed `title` to `name` for model definition
+
+- **Human**: Noticed agentic tasks failing - "perhaps continue is blocking"
+- **AI**: Discovered that the OpenAI-compatible endpoint (`/v1/chat/completions`) didn't support agentic mode at all. Only the native `/chat` endpoint had file tools.
+  - Added agentic tools (`write_file`, `read_file`, `list_files`) to both streaming and non-streaming OpenAI handlers
+  - Implemented function call handling in streaming mode
+  - Added logging to show "Agentic: true" in requests
+
+- **Human**: Asked about model discovery - "is there a way to pass /models so it fetches available models to populate dropdown menu in continue"
+- **AI**: Initially created a complex translation layer, but human feedback simplified the approach:
+  - `/v1/models` now returns actual Gemini model IDs (not hardcoded "gpt-4")
+  - Continue.dev auto-discovers models from `/v1/models`
+  - Users can select any Gemini model directly
+  - If a Gemini model ID is specified, it's used directly; otherwise falls back to cached/default model
+
+- **Human**: "2.0 experimental is banned from this project"
+- **AI**: Added filtering to block all experimental models:
+  - Filters out models containing `-exp`, `experimental`, `2.0-flash-exp`, `2.0-pro-exp`
+  - Applied to both `/models` and `/v1/models` endpoints
+  - Blocks experimental models in request handlers
+
+**Key Insight**: The human's observation that "if the proxy is gonna convert to the model I chose to start the server, listing models is pointless, unless I wanna create an image or something" led to a simpler design where:
+- Models are listed for user selection
+- Direct Gemini model IDs are respected when specified
+- Fallback to cached/default model for compatibility
+
 ## Conclusion
 
 This project demonstrates effective human-AI collaboration where:
@@ -186,6 +223,7 @@ This project demonstrates effective human-AI collaboration where:
 - The AI provided implementation speed and technical breadth
 - Testing in real conditions caught issues that code review missed
 - The "1220 tokens" observation was the key breakthrough for image support
+- Human feedback on complexity led to simpler, more maintainable solutions
 
-The most valuable human contributions were not about writing code, but about knowing what to look for when something doesn't work as expected.
+The most valuable human contributions were not about writing code, but about knowing what to look for when something doesn't work as expected, and recognizing when solutions are getting too complicated.
 

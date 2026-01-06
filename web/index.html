@@ -418,8 +418,16 @@
             <pre><code>{"mcpServers":{"gemini-brain":{"command":"go","args":["run","{{.MCPPath}}"]}}}</code></pre>
 
             <h3>2. <i class="uil uil-file-edit-alt"></i> VS Code + Continue.dev</h3>
-            <p>Edit <code style="display:inline; margin:0;">~/.continue/config.json</code>:</p>
-            <pre><code>{"models":[{"title":"Gemini","provider":"openai","model":"gpt-4","apiBase":"http://localhost{{.ServerPort}}/v1","apiKey":"x"}]}</code></pre>
+            <p>Edit <code style="display:inline; margin:0;">~/.continue/config.yaml</code> (or use Continue's settings UI):</p>
+            <pre><code>name: Gemini Proxy
+version: 1.0.0
+schema: v1
+models:
+  - name: Gemini
+    provider: openai
+    model: gpt-4
+    apiBase: http://localhost{{.ServerPort}}/v1
+    apiKey: x</code></pre>
 
             <h3>3. <i class="uil uil-atom"></i> Antigravity</h3>
             <pre><code>Provider: OpenAI Compatible
