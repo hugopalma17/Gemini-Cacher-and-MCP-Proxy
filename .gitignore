@@ -1,0 +1,21 @@
+*
+!.gitignore
+!main.go
+!README.md
+!LICENSE
+!go.mod
+!go.sum
+!cmd/
+!web/
+!web/**
+!history.md
+!test_endpoints.sh
+!install.sh
+
+# Beta/GUI files (should only be in beta branch)
+gui_*.go
+gui_*.go.hide
+gui_*.bak
+*.hide
+*.bak
+
