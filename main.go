@@ -70,12 +70,13 @@ var modelCosts = map[string]struct{ In, Out float64 }{
 
 
 type ChatRequest struct {
-	SessionID  string `json:"session_id"`
-	Model      string `json:"model"`
-	Message    string `json:"message"`
-	CacheID    string `json:"cache_id"`    // Optional override
-	UseSearch  bool   `json:"use_search"`  // Enable Google Search grounding
-	UseAgentic bool   `json:"use_agentic"` // Enable file tools (write_file, etc.)
+	SessionID  string   `json:"session_id"`
+	Model      string   `json:"model"`
+	Message    string   `json:"message"`
+	CacheID    string   `json:"cache_id"`    // Optional override
+	UseSearch  bool     `json:"use_search"`  // Enable Google Search grounding
+	UseAgentic bool     `json:"use_agentic"` // Enable file tools (write_file, etc.)
+	Images     []string `json:"images"`      // Base64 encoded images from frontend
 }
 
 type ChatResponse struct {
@@ -1295,10 +1296,58 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		req.Message = "Hello"
 	}
 
-	fmt.Printf("[DEBUG] Sending Message: Model=%s, CacheID=%s, HistoryCount=%d\n", req.Model, activeCID, len(history))
+	fmt.Printf("[DEBUG] Sending Message: Model=%s, CacheID=%s, HistoryCount=%d, Images=%d\n", req.Model, activeCID, len(history), len(req.Images))
 
-	// Send the message
-	res, err := chat.SendMessage(ctx, genai.Part{Text: req.Message})
+	// Build message parts (text + images)
+	var messageParts []genai.Part
+	
+	// Add text message if present
+	if req.Message != "" {
+		messageParts = append(messageParts, genai.Part{Text: req.Message})
+	}
+	
+	// Process images from frontend (base64 data URLs)
+	for _, imgData := range req.Images {
+		// Parse data URL: data:image/png;base64,<data>
+		if strings.HasPrefix(imgData, "data:") {
+			// Extract MIME type and base64 data
+			dataParts := strings.Split(imgData, ",")
+			if len(dataParts) == 2 {
+				header := dataParts[0] // data:image/png;base64
+				dataStr := dataParts[1] // base64 encoded data
+				
+				// Extract MIME type
+				mimeType := "image/png" // default
+				if strings.Contains(header, "image/") {
+					mimeParts := strings.Split(header, ";")
+					if len(mimeParts) > 0 {
+						mimeType = strings.TrimPrefix(mimeParts[0], "data:")
+					}
+				}
+				
+				// Decode base64
+				imgBytes, err := base64.StdEncoding.DecodeString(dataStr)
+				if err == nil {
+					// Create Part with InlineData - check the genai package structure
+					imgPart := genai.Part{}
+					// Set InlineData field directly (it's a pointer field on Part)
+					imgPart.InlineData = &genai.Blob{
+						MIMEType: mimeType,
+						Data:     imgBytes,
+					}
+					messageParts = append(messageParts, imgPart)
+				}
+			}
+		}
+	}
+	
+	// If no parts, add empty text
+	if len(messageParts) == 0 {
+		messageParts = []genai.Part{{Text: "Hello"}}
+	}
+
+	// Send the message with images
+	res, err := chat.SendMessage(ctx, messageParts...)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
