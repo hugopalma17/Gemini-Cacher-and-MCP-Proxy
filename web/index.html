@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity Brain - Gemini</title>
+    <!-- Local Assets (embedded) -->
+    <script src="/assets/marked.min.js"></script>
+    <link href="/assets/prism.css" rel="stylesheet" />
+    <script src="/assets/prism.js"></script>
+    <script src="/assets/prism-go.js"></script>
+    <script src="/assets/prism-bash.js"></script>
+    <script src="/assets/prism-json.js"></script>
+    <script src="/assets/prism-python.js"></script>
+    <!-- Unicons -->
+    <link rel="stylesheet" href="https://unpkg.com/@iconscout/unicons@4.0.8/css/line.css">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --sidebar-bg: #1e293b;
+            --chat-bg: #0f172a;
+            --accent-color: #38bdf8;
+            --text-color: #f8fafc;
+            --msg-user: #1e293b;
+            --msg-bot: #334155;
+            --glass: rgba(255, 255, 255, 0.05);
+            --danger: #ef4444;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: 'Inter', system-ui, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        #sidebar {
+            width: 280px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+            overflow: hidden;
+        }
+        #sidebar h2 { font-size: 1rem; margin-bottom: 0.75rem; color: var(--accent-color); display: flex; align-items: center; gap: 0.4rem; }
+        .caching-badge {
+            font-size: 0.6rem;
+            background: var(--accent-color);
+            color: #000;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: bold;
+            margin-bottom: 0.75rem;
+            display: inline-block;
+        }
+        .help-btn {
+            background: var(--glass);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--accent-color);
+            padding: 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-top: 0.75rem;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+        }
+        .help-btn:hover { background: rgba(255,255,255,0.1); }
+
+        /* File Tree */
+        #file-tree {
+            flex-grow: 1;
+            overflow-y: auto;
+            font-size: 0.85rem;
+        }
+        .tree-item {
+            display: flex;
+            align-items: center;
+            padding: 0.35rem 0.5rem;
+            cursor: pointer;
+            border-radius: 4px;
+            gap: 0.5rem;
+            user-select: none;
+        }
+        .tree-item:hover { background: rgba(255,255,255,0.08); }
+        .tree-item.selected { background: var(--accent-color); color: #000; }
+        .tree-item i { font-size: 1rem; flex-shrink: 0; }
+        .tree-item .name { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tree-children { margin-left: 1rem; display: none; }
+        .tree-children.expanded { display: block; }
+        .tree-folder > .tree-item i.folder-icon { transition: transform 0.2s; }
+        .tree-folder.open > .tree-item i.folder-icon { transform: rotate(90deg); }
+
+        /* Modal */
+        #help-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: var(--sidebar-bg);
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 2rem;
+            overflow-y: auto;
+            position: relative;
+        }
+        .modal-content h2 i, .modal-content h3 i { margin-right: 0.4rem; color: var(--accent-color); }
+        .modal-content code {
+            display: block;
+            background: #000;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            color: #38bdf8;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .close-btn {
+            position: absolute;
+            top: 1rem; right: 1rem;
+            cursor: pointer;
+            color: #fff;
+            font-size: 1.5rem;
+        }
+
+        /* Main Chat */
+        #main-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        #chat-window {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        .message {
+            max-width: 85%;
+            padding: 1rem;
+            border-radius: 12px;
+            line-height: 1.6;
+            position: relative;
+            animation: fadeIn 0.3s ease-out;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .user-msg {
+            align-self: flex-end;
+            background: var(--msg-user);
+            border-bottom-right-radius: 2px;
+        }
+        .bot-msg {
+            align-self: flex-start;
+            background: var(--msg-bot);
+            border-bottom-left-radius: 2px;
+            border-left: 4px solid var(--accent-color);
+        }
+
+        /* Markdown Styles */
+        .message p { margin: 0 0 1rem 0; }
+        .message p:last-child { margin-bottom: 0; }
+        .message code:not(pre code) { background: rgba(0,0,0,0.4); padding: 0.15rem 0.4rem; border-radius: 4px; font-family: 'SF Mono', Monaco, monospace; font-size: 0.9em; color: #f472b6; }
+        .message pre { position: relative; background: #1a1a2e !important; padding: 1rem; padding-top: 2.5rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; max-width: 100%; }
+        .message pre code { background: transparent; padding: 0; color: inherit; font-size: 0.85rem; }
+        .message ul, .message ol { margin: 0.5rem 0 1rem 1.5rem; }
+        .message li { margin-bottom: 0.4rem; }
+        .message h1, .message h2, .message h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; color: #fff; }
+        .message a { color: var(--accent-color); text-decoration: none; }
+        .message a:hover { text-decoration: underline; }
+        .message img { max-width: 100%; height: auto; border-radius: 8px; margin: 0.5rem 0; }
+        .message table { border-collapse: collapse; margin: 1rem 0; width: 100%; }
+        .message th, .message td { border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem; text-align: left; }
+        .message th { background: rgba(255,255,255,0.1); }
+
+        /* Code Copy Button */
+        .copy-btn {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: #fff;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        .copy-btn:hover { opacity: 1; background: rgba(255,255,255,0.2); }
+        .copy-btn.copied { background: #22c55e; }
+
+        .token-info {
+            display: block;
+            font-size: 0.7rem;
+            color: rgba(255,255,255,0.4);
+            margin-top: 0.5rem;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 0.3rem;
+        }
+
+        /* Input Area */
+        #input-wrapper {
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding: 1rem 2rem;
+        }
+        #attachments {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+        #attachments:empty { display: none; margin-bottom: 0; }
+        .attachment-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: rgba(56, 189, 248, 0.2);
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            padding: 0.3rem 0.6rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+        }
+        .attachment-pill i { font-size: 0.9rem; }
+        .attachment-pill .remove {
+            cursor: pointer;
+            margin-left: 0.2rem;
+            opacity: 0.7;
+        }
+        .attachment-pill .remove:hover { opacity: 1; color: var(--danger); }
+        .attachment-thumb {
+            position: relative;
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid var(--accent-color);
+        }
+        .attachment-thumb img { width: 100%; height: 100%; object-fit: cover; }
+        .attachment-thumb .remove {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            background: var(--danger);
+            color: #fff;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 0.7rem;
+        }
+        #input-row {
+            display: flex;
+            gap: 1rem;
+        }
+        #msg-input {
+            flex-grow: 1;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #fff;
+            padding: 0.85rem 1rem;
+            border-radius: 8px;
+            outline: none;
+            font-size: 1rem;
+        }
+        #msg-input:focus { border-color: var(--accent-color); }
+        #send-btn {
+            background: var(--accent-color);
+            color: #000;
+            border: none;
+            padding: 0 1.5rem;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.1s;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        #send-btn:active { transform: scale(0.95); }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+
+        /* Select styling */
+        select {
+            width: 100%;
+            padding: 0.5rem;
+            background: var(--chat-bg);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px;
+            outline: none;
+            font-size: 0.85rem;
+        }
+        select:focus { border-color: var(--accent-color); }
+
+        /* Checkbox label */
+        .option-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+            background: var(--glass);
+        }
+        .option-label:hover { background: rgba(255,255,255,0.08); }
+        .option-label input { width: 1rem; height: 1rem; accent-color: var(--accent-color); }
+
+        /* Tool Activity */
+        #tool-activity {
+            max-height: 150px;
+            overflow-y: auto;
+            font-size: 0.75rem;
+            background: rgba(0,0,0,0.2);
+            border-radius: 6px;
+            padding: 0.5rem;
+        }
+        #tool-activity:empty::before {
+            content: 'No recent activity';
+            color: rgba(255,255,255,0.3);
+            font-style: italic;
+        }
+        .tool-log {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.4rem;
+            padding: 0.3rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            animation: toolFade 0.3s ease-out;
+        }
+        .tool-log:last-child { border-bottom: none; }
+        .tool-log i { color: var(--accent-color); flex-shrink: 0; margin-top: 2px; }
+        .tool-log .tool-name { color: #22c55e; font-weight: 500; }
+        .tool-log .tool-args { color: rgba(255,255,255,0.6); word-break: break-all; }
+        @keyframes toolFade { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div class="caching-badge" id="badge-cache" style="display: none;">CACHE ACTIVE</div>
+        <h2><i class="uil uil-folder-open"></i> Files</h2>
+        <div id="file-tree">Loading...</div>
+
+        <h2 style="margin-top: 1rem;"><i class="uil uil-robot"></i> Model</h2>
+        <select id="model-select"></select>
+
+        <h2 style="margin-top: 1rem;"><i class="uil uil-setting"></i> Options</h2>
+        <label class="option-label">
+            <input type="checkbox" id="agentic-toggle" checked>
+            <i class="uil uil-robot"></i> Agentic Mode
+        </label>
+        <label class="option-label" style="margin-top: 0.5rem;">
+            <input type="checkbox" id="search-toggle">
+            <i class="uil uil-search"></i> Google Search
+        </label>
+
+        <h2 style="margin-top: 1rem;"><i class="uil uil-wrench"></i> Tool Activity</h2>
+        <div id="tool-activity"></div>
+
+        <div id="cache-status" style="margin-top: auto; padding-top: 1rem; font-size: 0.75rem; color: rgba(255,255,255,0.4); border-top: 1px solid rgba(255,255,255,0.1);">
+            Cache: <span id="cache-name">Checking...</span>
+        </div>
+        <div class="help-btn" onclick="showHelp()"><i class="uil uil-question-circle"></i> Integration Help</div>
+    </div>
+
+    <div id="help-modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeHelp()">&times;</span>
+            <h2><i class="uil uil-rocket"></i> Integration Guide</h2>
+            <p>This server exposes OpenAI-compatible APIs. Use <code style="display:inline; margin:0;">http://localhost{{.ServerPort}}/v1</code> as your base URL.</p>
+
+            <h3><i class="uil uil-wifi"></i> Available Endpoints</h3>
+            <table style="width:100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem;">
+                <tr style="background: rgba(255,255,255,0.1);"><td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);"><code style="display:inline; margin:0;">/v1/chat/completions</code></td><td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">OpenAI-compatible (streaming)</td></tr>
+                <tr><td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);"><code style="display:inline; margin:0;">/v1/models</code></td><td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">OpenAI models list</td></tr>
+                <tr style="background: rgba(255,255,255,0.1);"><td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);"><code style="display:inline; margin:0;">/chat</code></td><td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">Native endpoint (tools, search)</td></tr>
+                <tr><td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);"><code style="display:inline; margin:0;">/status</code></td><td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">Server status</td></tr>
+            </table>
+
+            <h3>1. <i class="uil uil-desktop"></i> Cursor</h3>
+            <p>Add MCP server to <code style="display:inline; margin:0;">~/.cursor/mcp.json</code>:</p>
+            <pre><code>{"mcpServers":{"gemini-brain":{"command":"go","args":["run","{{.MCPPath}}"]}}}</code></pre>
+
+            <h3>2. <i class="uil uil-file-edit-alt"></i> VS Code + Continue.dev</h3>
+            <p>Edit <code style="display:inline; margin:0;">~/.continue/config.json</code>:</p>
+            <pre><code>{"models":[{"title":"Gemini","provider":"openai","model":"gpt-4","apiBase":"http://localhost{{.ServerPort}}/v1","apiKey":"x"}]}</code></pre>
+
+            <h3>3. <i class="uil uil-atom"></i> Antigravity</h3>
+            <pre><code>Provider: OpenAI Compatible
+Base URL: http://localhost{{.ServerPort}}/v1
+API Key: x | Model: gpt-4</code></pre>
+
+            <h3>4. <i class="uil uil-bolt"></i> Zed Editor</h3>
+            <p>Edit <code style="display:inline; margin:0;">~/.config/zed/settings.json</code>:</p>
+            <pre><code>{"language_models":{"openai":{"api_url":"http://localhost{{.ServerPort}}/v1","available_models":[{"name":"gpt-4","max_tokens":128000}]}}}</code></pre>
+
+            <h3>5. <i class="uil uil-plug"></i> Claude Desktop</h3>
+            <pre><code>{"mcpServers":{"gemini-brain":{"command":"go","args":["run","{{.MCPPath}}"]}}}</code></pre>
+
+            <h3><i class="uil uil-cog"></i> Server Modes</h3>
+            <pre><code>go run main.go                    # Clean mode
+go run main.go -cache .           # Cache current dir
+go run main.go -cache-id xxx      # Use existing cache
+go run main.go -debug             # Debug logging</code></pre>
+        </div>
+    </div>
+
+    <div id="main-container">
+        <div id="chat-window">
+            <div class="message bot-msg">Hello! I am your Antigravity Brain. How can I help you today?</div>
+        </div>
+        <div id="input-wrapper">
+            <div id="attachments"></div>
+            <div id="input-row">
+                <input type="text" id="msg-input" placeholder="Type a message or paste an image..." autofocus>
+                <button id="send-btn" onclick="sendMessage()"><i class="uil uil-message"></i> Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let selectedFiles = new Set();
+        let pastedImages = [];
+        let sessionID = 'web-' + Math.random().toString(36).substr(2, 9);
+        let activeCache = '{{.CacheName}}';
+        const defaultModel = '{{.CacheModel}}';
+
+        // DOM refs
+        const chatWindow = document.getElementById('chat-window');
+        const fileTree = document.getElementById('file-tree');
+        const msgInput = document.getElementById('msg-input');
+        const modelSelect = document.getElementById('model-select');
+        const attachments = document.getElementById('attachments');
+        const cacheEl = document.getElementById('cache-name');
+        const badgeEl = document.getElementById('badge-cache');
+        const toolActivity = document.getElementById('tool-activity');
+
+        // Tool activity helper
+        function addToolLog(toolName, args) {
+            const log = document.createElement('div');
+            log.className = 'tool-log';
+            const argsStr = typeof args === 'object' ? JSON.stringify(args) : String(args);
+            log.innerHTML = `<i class="uil uil-cog"></i><span class="tool-name">${toolName}</span><span class="tool-args">${argsStr.substring(0, 80)}${argsStr.length > 80 ? '...' : ''}</span>`;
+            toolActivity.insertBefore(log, toolActivity.firstChild);
+            // Keep only last 10 logs
+            while (toolActivity.children.length > 10) {
+                toolActivity.removeChild(toolActivity.lastChild);
+            }
+        }
+
+        function clearToolActivity() {
+            toolActivity.innerHTML = '';
+        }
+
+        // Init cache display
+        if (activeCache) {
+            cacheEl.textContent = activeCache.split('/').pop();
+            badgeEl.style.display = 'inline-block';
+        } else {
+            cacheEl.textContent = 'None';
+        }
+
+        // File type icons
+        const fileIcons = {
+            'js': 'uil-java-script', 'ts': 'uil-java-script', 'jsx': 'uil-react', 'tsx': 'uil-react',
+            'go': 'uil-brackets-curly', 'py': 'uil-brackets-curly', 'rb': 'uil-diamond',
+            'html': 'uil-html5', 'css': 'uil-css3-simple', 'scss': 'uil-css3-simple',
+            'json': 'uil-file-alt', 'yaml': 'uil-file-alt', 'yml': 'uil-file-alt',
+            'md': 'uil-document-info', 'txt': 'uil-file-alt',
+            'png': 'uil-image', 'jpg': 'uil-image', 'jpeg': 'uil-image', 'gif': 'uil-image', 'svg': 'uil-image',
+            'pdf': 'uil-file-download-alt',
+            'sh': 'uil-terminal', 'bash': 'uil-terminal',
+            'default': 'uil-file'
+        };
+
+        function getFileIcon(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            return fileIcons[ext] || fileIcons['default'];
+        }
+
+        // Load file tree
+        async function loadTree() {
+            try {
+                const res = await fetch('/files');
+                const data = await res.json();
+                fileTree.innerHTML = '';
+                renderTreeLevel(data.files, fileTree, '');
+            } catch (e) {
+                fileTree.innerHTML = '<span style="color: var(--danger);">Error loading files</span>';
+            }
+        }
+
+        function renderTreeLevel(items, container, basePath) {
+            items.forEach(item => {
+                const isDir = item.endsWith('/');
+                const name = isDir ? item.slice(0, -1) : item;
+                const fullPath = basePath ? basePath + '/' + name : name;
+
+                if (isDir) {
+                    const folder = document.createElement('div');
+                    folder.className = 'tree-folder';
+                    folder.innerHTML = `
+                        <div class="tree-item">
+                            <i class="uil uil-angle-right folder-icon"></i>
+                            <i class="uil uil-folder"></i>
+                            <span class="name">${name}</span>
+                        </div>
+                        <div class="tree-children"></div>
+                    `;
+                    const header = folder.querySelector('.tree-item');
+                    const children = folder.querySelector('.tree-children');
+                    let loaded = false;
+
+                    header.onclick = async (e) => {
+                        e.stopPropagation();
+                        folder.classList.toggle('open');
+                        children.classList.toggle('expanded');
+                        if (!loaded && folder.classList.contains('open')) {
+                            loaded = true;
+                            try {
+                                const res = await fetch('/files?path=' + encodeURIComponent(fullPath));
+                                const data = await res.json();
+                                renderTreeLevel(data.files || [], children, fullPath);
+                            } catch (e) {
+                                children.innerHTML = '<span style="color: var(--danger); padding-left: 1rem;">Error</span>';
+                            }
+                        }
+                    };
+                    container.appendChild(folder);
+                } else {
+                    const file = document.createElement('div');
+                    file.className = 'tree-item';
+                    file.innerHTML = `<i class="uil ${getFileIcon(name)}"></i><span class="name">${name}</span>`;
+                    file.onclick = () => toggleFileSelection(fullPath, file);
+                    container.appendChild(file);
+                }
+            });
+        }
+
+        function toggleFileSelection(path, element) {
+            if (selectedFiles.has(path)) {
+                selectedFiles.delete(path);
+                element.classList.remove('selected');
+            } else {
+                selectedFiles.add(path);
+                element.classList.add('selected');
+            }
+            updateAttachments();
+        }
+
+        function updateAttachments() {
+            attachments.innerHTML = '';
+            // File pills
+            selectedFiles.forEach(file => {
+                const pill = document.createElement('div');
+                pill.className = 'attachment-pill';
+                const name = file.split('/').pop();
+                pill.innerHTML = `<i class="uil ${getFileIcon(name)}"></i><span>${name}</span><i class="uil uil-times remove"></i>`;
+                pill.querySelector('.remove').onclick = () => {
+                    selectedFiles.delete(file);
+                    document.querySelectorAll('.tree-item').forEach(el => {
+                        if (el.querySelector('.name')?.textContent === name) el.classList.remove('selected');
+                    });
+                    updateAttachments();
+                };
+                attachments.appendChild(pill);
+            });
+            // Image thumbnails
+            pastedImages.forEach((img, idx) => {
+                const thumb = document.createElement('div');
+                thumb.className = 'attachment-thumb';
+                thumb.innerHTML = `<img src="${img}"><div class="remove"><i class="uil uil-times"></i></div>`;
+                thumb.querySelector('.remove').onclick = () => {
+                    pastedImages.splice(idx, 1);
+                    updateAttachments();
+                };
+                attachments.appendChild(thumb);
+            });
+        }
+
+        // Handle paste for images
+        msgInput.addEventListener('paste', (e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const blob = item.getAsFile();
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        pastedImages.push(reader.result);
+                        updateAttachments();
+                    };
+                    reader.readAsDataURL(blob);
+                }
+            }
+        });
+
+        // Load models
+        async function loadModels() {
+            try {
+                const res = await fetch('/models');
+                const data = await res.json();
+                modelSelect.innerHTML = '';
+                if (!data.models?.length) {
+                    modelSelect.innerHTML = '<option value="">No models</option>';
+                    return;
+                }
+                // Sort models to put cache model first if it exists
+                let exactMatchIndex = -1;
+                data.models.forEach((model, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = model.id;
+                    opt.textContent = model.name + ' (' + model.cost + ')';
+                    // Prefer exact match
+                    if (defaultModel && model.id === defaultModel) {
+                        exactMatchIndex = idx;
+                    }
+                    modelSelect.appendChild(opt);
+                });
+                // Select exact match if found, otherwise first
+                modelSelect.selectedIndex = exactMatchIndex >= 0 ? exactMatchIndex : 0;
+            } catch (e) {
+                modelSelect.innerHTML = '<option value="">Error loading models</option>';
+            }
+        }
+
+        // Send message
+        async function sendMessage() {
+            const text = msgInput.value.trim();
+            if (!text && pastedImages.length === 0) return;
+
+            // Build user message display
+            let userDisplay = text;
+            if (selectedFiles.size > 0) {
+                userDisplay = '[Files: ' + Array.from(selectedFiles).map(f => f.split('/').pop()).join(', ') + ']\n' + text;
+            }
+            appendMessage(userDisplay, 'user', pastedImages.length > 0 ? pastedImages[0] : null);
+            msgInput.value = '';
+
+            // Build prompt
+            let fullPrompt = text;
+            if (selectedFiles.size > 0) {
+                fullPrompt = 'Files selected: ' + Array.from(selectedFiles).join(', ') + '\n\n' + text;
+            }
+
+            const useSearch = document.getElementById('search-toggle').checked;
+            const useAgentic = document.getElementById('agentic-toggle').checked;
+            const cacheMatch = text.match(/(cachedContents\/[a-z0-9]+)/i);
+            const manualCache = cacheMatch ? cacheMatch[1] : '';
+
+            // Clear attachments after sending
+            const imagesToSend = [...pastedImages];
+            selectedFiles.clear();
+            pastedImages = [];
+            updateAttachments();
+            document.querySelectorAll('.tree-item.selected').forEach(el => el.classList.remove('selected'));
+
+            const typing = appendMessage('Thinking...', 'bot');
+
+            try {
+                const res = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: sessionID,
+                        model: modelSelect.value,
+                        message: fullPrompt,
+                        cache_id: manualCache,
+                        use_search: useSearch,
+                        use_agentic: useAgentic,
+                        images: imagesToSend
+                    })
+                });
+                typing.remove();
+                if (res.ok) {
+                    const data = await res.json();
+                    // Show tool calls in activity panel
+                    if (data.tool_calls && data.tool_calls.length > 0) {
+                        data.tool_calls.forEach(tc => {
+                            addToolLog(tc.split(':')[0] || tc, tc.split(':').slice(1).join(':') || '');
+                        });
+                    }
+                    appendMessage(data.text, 'bot', null, data);
+                } else {
+                    appendMessage('Error: ' + await res.text(), 'bot');
+                }
+            } catch (e) {
+                typing.remove();
+                appendMessage('Network Error: Could not reach server.', 'bot');
+            }
+        }
+
+        function appendMessage(text, type, image = null, meta = null) {
+            const div = document.createElement('div');
+            div.className = 'message ' + (type === 'user' ? 'user-msg' : 'bot-msg');
+
+            if (type === 'bot') {
+                div.innerHTML = marked.parse(text);
+                // Add copy buttons to code blocks
+                div.querySelectorAll('pre').forEach(pre => {
+                    const btn = document.createElement('button');
+                    btn.className = 'copy-btn';
+                    btn.innerHTML = '<i class="uil uil-copy"></i> Copy';
+                    btn.onclick = () => {
+                        const code = pre.querySelector('code')?.textContent || pre.textContent;
+                        navigator.clipboard.writeText(code);
+                        btn.innerHTML = '<i class="uil uil-check"></i> Copied';
+                        btn.classList.add('copied');
+                        setTimeout(() => {
+                            btn.innerHTML = '<i class="uil uil-copy"></i> Copy';
+                            btn.classList.remove('copied');
+                        }, 2000);
+                    };
+                    pre.appendChild(btn);
+                });
+                // Highlight code
+                Prism.highlightAllUnder(div);
+            } else {
+                div.innerText = text;
+            }
+
+            // Add user image if present
+            if (image && type === 'user') {
+                const img = document.createElement('img');
+                img.src = image;
+                img.style.maxWidth = '200px';
+                img.style.borderRadius = '8px';
+                img.style.marginTop = '0.5rem';
+                img.style.display = 'block';
+                div.appendChild(img);
+            }
+
+            // Add generated images from API response
+            if (meta && meta.images && meta.images.length > 0) {
+                const imgContainer = document.createElement('div');
+                imgContainer.style.marginTop = '1rem';
+                meta.images.forEach(imgData => {
+                    const img = document.createElement('img');
+                    img.src = 'data:' + imgData.mime_type + ';base64,' + imgData.data;
+                    img.style.maxWidth = '100%';
+                    img.style.borderRadius = '8px';
+                    img.style.marginBottom = '0.5rem';
+                    img.style.display = 'block';
+                    imgContainer.appendChild(img);
+                });
+                div.appendChild(imgContainer);
+            }
+
+            // Token info
+            if (meta && type === 'bot') {
+                const info = document.createElement('div');
+                info.className = 'token-info';
+                const cost = (meta.request_cost_brl && typeof meta.request_cost_brl === 'number') ? meta.request_cost_brl.toFixed(6) : '0.000000';
+                info.innerText = 'Tokens: ' + meta.prompt_tokens + ' in / ' + meta.response_tokens + ' out | Cost: $' + cost;
+                div.appendChild(info);
+            }
+
+            chatWindow.appendChild(div);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+            return div;
+        }
+
+        function showHelp() { document.getElementById('help-modal').style.display = 'flex'; }
+        function closeHelp() { document.getElementById('help-modal').style.display = 'none'; }
+
+        // Keyboard shortcuts
+        msgInput.onkeypress = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+        document.onkeydown = (e) => { if (e.key === 'Escape') closeHelp(); };
+
+        // Init
+        loadTree();
+        loadModels();
+    </script>
+</body>
+</html>
