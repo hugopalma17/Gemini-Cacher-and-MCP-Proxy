@@ -21,9 +21,134 @@ show_progress() {
 echo -e "${GREEN}=== Antigravity Brain - Installation Script ===${NC}\n"
 echo -e "${BLUE}Note:${NC} This script installs to your home directory. ${GREEN}No sudo required!${NC}\n"
 
+# Step 0: Check if project files exist, clone if needed
+REPO_URL="https://github.com/hugopalma17/Gemini-Cacher-and-MCP-Proxy.git"
+REPO_NAME="Gemini-Cacher-and-MCP-Proxy"
+
+# Get the directory where the script is located (if run directly)
+# If piped from curl, this will be the current working directory
+if [ -f "${BASH_SOURCE[0]}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    # Script is piped from curl, use current directory
+    SCRIPT_DIR="$(pwd)"
+fi
+
+# Check if we're running from within the repo or need to download
+if [ ! -f "$SCRIPT_DIR/main.go" ]; then
+    echo -e "${YELLOW}Step 0/6:${NC} Project files not found. Downloading repository..."
+    
+    # Determine where to download (use current working directory)
+    CURRENT_DIR="$(pwd)"
+    CLONE_DIR="$CURRENT_DIR/$REPO_NAME"
+    
+    if [ -d "$CLONE_DIR" ] && [ -f "$CLONE_DIR/main.go" ]; then
+        echo -e "${YELLOW}⚠${NC} Directory $CLONE_DIR already exists. Using it..."
+        cd "$CLONE_DIR"
+        SCRIPT_DIR="$(pwd)"
+        echo -e "${GREEN}✓${NC} Using existing project files"
+    else
+        # Function to install git
+        install_git() {
+            OS_TYPE=$(uname -s | tr '[:upper:]' '[:lower:]')
+            if [ "$OS_TYPE" = "linux" ]; then
+                if command -v apt-get &> /dev/null; then
+                    echo -e "${BLUE}  →${NC} Installing git (requires sudo)..."
+                    sudo apt-get update -qq && sudo apt-get install -y git || return 1
+                elif command -v yum &> /dev/null; then
+                    echo -e "${BLUE}  →${NC} Installing git (requires sudo)..."
+                    sudo yum install -y git || return 1
+                elif command -v dnf &> /dev/null; then
+                    echo -e "${BLUE}  →${NC} Installing git (requires sudo)..."
+                    sudo dnf install -y git || return 1
+                else
+                    return 1
+                fi
+            elif [ "$OS_TYPE" = "darwin" ]; then
+                # macOS - try to install Xcode Command Line Tools
+                echo -e "${BLUE}  →${NC} Installing Xcode Command Line Tools (requires admin)..."
+                xcode-select --install 2>/dev/null || {
+                    echo -e "${YELLOW}⚠${NC} Please install Xcode Command Line Tools manually"
+                    return 1
+                }
+            else
+                return 1
+            fi
+        }
+        
+        # Check if we have an archiving tool (unzip or tar)
+        HAS_ARCHIVE_TOOL=false
+        if command -v unzip &> /dev/null || command -v tar &> /dev/null; then
+            HAS_ARCHIVE_TOOL=true
+        fi
+        
+        # Try ZIP download if we have unzip
+        if [ "$HAS_ARCHIVE_TOOL" = "true" ] && command -v unzip &> /dev/null; then
+            echo -e "${BLUE}  →${NC} Downloading repository as ZIP..."
+            ZIP_URL="https://github.com/hugopalma17/Gemini-Cacher-and-MCP-Proxy/archive/refs/heads/main.zip"
+            ZIP_FILE="/tmp/${REPO_NAME}.zip"
+            
+            DOWNLOAD_SUCCESS=false
+            if command -v curl &> /dev/null; then
+                if curl -L -# -o "$ZIP_FILE" "$ZIP_URL"; then
+                    DOWNLOAD_SUCCESS=true
+                fi
+            elif command -v wget &> /dev/null; then
+                if wget --progress=bar:force -O "$ZIP_FILE" "$ZIP_URL" >/dev/null 2>&1; then
+                    DOWNLOAD_SUCCESS=true
+                fi
+            fi
+            
+            if [ "$DOWNLOAD_SUCCESS" = "true" ] && [ -f "$ZIP_FILE" ]; then
+                echo -e "${BLUE}  →${NC} Extracting ZIP archive..."
+                if unzip -q "$ZIP_FILE" -d "$CURRENT_DIR"; then
+                    rm -f "$ZIP_FILE"
+                    # GitHub ZIP extracts to a folder named "REPO-main"
+                    if [ -d "$CURRENT_DIR/${REPO_NAME}-main" ]; then
+                        mv "$CURRENT_DIR/${REPO_NAME}-main" "$CLONE_DIR"
+                    fi
+                    cd "$CLONE_DIR"
+                    SCRIPT_DIR="$(pwd)"
+                    echo -e "${GREEN}✓${NC} Repository downloaded and extracted successfully"
+                else
+                    echo -e "${YELLOW}⚠${NC} ZIP extraction failed, trying git..."
+                    HAS_ARCHIVE_TOOL=false
+                fi
+            else
+                echo -e "${YELLOW}⚠${NC} ZIP download failed, trying git..."
+                HAS_ARCHIVE_TOOL=false
+            fi
+        fi
+        
+        # Use git if no archive tool or ZIP failed
+        if [ "$HAS_ARCHIVE_TOOL" = "false" ] || [ ! -d "$CLONE_DIR" ]; then
+            if ! command -v git &> /dev/null; then
+                echo -e "${YELLOW}⚠${NC} Git not found. Attempting to install..."
+                if ! install_git; then
+                    echo -e "${RED}✗${NC} Could not install git. Please install git manually."
+                    exit 1
+                fi
+            fi
+            
+            echo -e "${BLUE}  →${NC} Cloning repository with git..."
+            git clone "$REPO_URL" "$CLONE_DIR" || {
+                echo -e "${RED}✗${NC} Failed to clone repository. Check your internet connection."
+                exit 1
+            }
+            cd "$CLONE_DIR"
+            SCRIPT_DIR="$(pwd)"
+            echo -e "${GREEN}✓${NC} Repository cloned successfully"
+        fi
+    fi
+else
+    # We're in the project directory
+    cd "$SCRIPT_DIR"
+    echo -e "${GREEN}✓${NC} Project files found"
+fi
+
 # Step 1: Check if Go is installed
-echo -e "${YELLOW}Step 1/5:${NC} Checking for Go installation..."
-show_progress 1 5 "Checking Go version..."
+echo -e "\n${YELLOW}Step 1/6:${NC} Checking for Go installation..."
+show_progress 1 6 "Checking Go version..."
 
 if command -v go &> /dev/null; then
     GO_VERSION=$(go version | awk '{print $3}')
@@ -80,7 +205,7 @@ else
     
     # Extract Go
     echo -e "${BLUE}  →${NC} Extracting Go to $HOME/go..."
-    show_progress 3 5 "Extracting Go..."
+    show_progress 1 6 "Extracting Go..."
     
     if [ -d "$HOME/go" ]; then
         rm -rf "$HOME/go"
@@ -140,7 +265,7 @@ else
 fi
 
 # Step 2: Verify Go installation
-show_progress 2 5 "Verifying Go installation..."
+show_progress 2 6 "Verifying Go installation..."
 if ! go version &> /dev/null; then
     echo -e "\r${RED}✗${NC} Go is not in PATH. Please add it manually."
     exit 1
@@ -148,8 +273,8 @@ fi
 echo -e "\r${GREEN}✓${NC} Go is ready"
 
 # Step 3: Check for GEMINI_API_KEY
-echo -e "\n${YELLOW}Step 2/5:${NC} Checking environment..."
-show_progress 3 5 "Checking GEMINI_API_KEY..."
+echo -e "\n${YELLOW}Step 2/6:${NC} Checking environment..."
+show_progress 3 6 "Checking GEMINI_API_KEY..."
 
 if [ -z "$GEMINI_API_KEY" ]; then
     if [ -f ".env" ] && grep -q "GEMINI_API_KEY" .env; then
@@ -169,8 +294,8 @@ else
 fi
 
 # Step 4: Download dependencies
-echo -e "\n${YELLOW}Step 3/5:${NC} Downloading Go dependencies..."
-show_progress 4 5 "Running go mod download..."
+echo -e "\n${YELLOW}Step 3/6:${NC} Downloading Go dependencies..."
+show_progress 4 6 "Running go mod download..."
 
 if [ ! -f "go.mod" ]; then
     echo -e "\r${YELLOW}⚠${NC} go.mod not found. Initializing module..."
@@ -186,10 +311,20 @@ done
 echo -e "\r${GREEN}✓${NC} Dependencies downloaded"
 
 # Step 5: Build the server
-echo -e "\n${YELLOW}Step 4/5:${NC} Building server..."
-show_progress 5 5 "Compiling main.go..."
+echo -e "\n${YELLOW}Step 4/6:${NC} Building server..."
 
-if go build -o server main.go 2>&1; then
+# Ensure we're in the project directory with main.go
+if [ ! -f "main.go" ]; then
+    echo -e "${RED}✗${NC} main.go not found. Please run this script from the project directory."
+    exit 1
+fi
+
+show_progress 5 6 "Compiling main.go..."
+
+BUILD_OUTPUT=$(go build -o server . 2>&1)
+BUILD_STATUS=$?
+
+if [ $BUILD_STATUS -eq 0 ]; then
     echo -e "\r${GREEN}✓${NC} Server built successfully!"
     echo -e "\n${GREEN}=== Installation Complete ===${NC}"
     echo -e "\n${BLUE}Server binary:${NC} ./server"
@@ -201,11 +336,13 @@ if go build -o server main.go 2>&1; then
     echo -e "\n${BLUE}Web UI:${NC} http://localhost:8080"
     echo -e "${BLUE}API:${NC} http://localhost:8080/v1"
 else
-    echo -e "\r${RED}✗${NC} Build failed. Check the error messages above."
+    echo -e "\r${RED}✗${NC} Build failed."
+    echo -e "\n${RED}Build errors:${NC}"
+    echo "$BUILD_OUTPUT"
     exit 1
 fi
 
-echo -e "\n${GREEN}Step 5/5:${NC} Done!"
+echo -e "\n${GREEN}Step 6/6:${NC} Done!"
 echo -e "\n${YELLOW}Next steps:${NC}"
 echo -e "  1. Set GEMINI_API_KEY in .env or export it"
 echo -e "  2. Run: ${BLUE}./server${NC}"
