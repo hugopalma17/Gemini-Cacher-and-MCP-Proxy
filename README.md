@@ -9,11 +9,28 @@ A Go server that proxies requests to Google's Gemini API with optional context c
 
 ## Installation
 
+### Quick Install (Automated)
+
+For users who want a one-command installation:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hugopalma17/Gemini-Cacher-and-MCP-Proxy/main/install.sh | bash
+```
+
+This script will:
+- Check for Go installation (downloads if needed)
+- Download and install Go 1.23.0 if not present
+- Download project dependencies
+- Build the server binary
+- Guide you through API key setup
+
+### Manual Installation
+
 Clone the repository and install dependencies:
 
 ```bash
-git clone <repository-url>
-cd customgemini
+git clone https://github.com/hugopalma17/Gemini-Cacher-and-MCP-Proxy.git
+cd Gemini-Cacher-and-MCP-Proxy
 go mod download
 ```
 

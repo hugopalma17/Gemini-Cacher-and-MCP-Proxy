@@ -177,8 +177,9 @@ web/index.html       - Web interface (new)
 web/assets/*         - Embedded JS/CSS libraries (new)
 README.md            - Documentation (rewritten)
 test_endpoints.sh    - API testing script (new)
+install.sh           - Automated installation script (new)
 history.md           - This file (new)
-.gitignore           - Updated for web/ directory
+.gitignore           - Updated for web/ directory and install.sh
 ```
 
 ### Phase 9: Continue.dev Integration and Agentic Mode
@@ -214,6 +215,26 @@ history.md           - This file (new)
 - Models are listed for user selection
 - Direct Gemini model IDs are respected when specified
 - Fallback to cached/default model for compatibility
+
+### Phase 10: Installation Script
+
+**Problem**: Users who aren't tech-savvy need an easy way to install and build the server.
+
+- **Human**: Requested a shell script that downloads Go and builds the server, with real-time progress indicators.
+- **AI**: Created `install.sh` with:
+  - Automatic Go detection and installation (downloads Go 1.23.0 if needed)
+  - Real-time progress indicators with percentages
+  - Color-coded status messages
+  - Automatic PATH persistence in shell config files
+  - API key setup guidance
+  - One-command installation via `curl | bash`
+
+- **Human**: "also only exporting the environment var for GO will not persist on restart"
+- **AI**: Enhanced script to automatically detect shell (zsh/bash) and add Go to `~/.bashrc`, `~/.zshrc`, or `~/.profile` for persistence.
+
+- **Human**: Added script to README as one-liner installation option.
+
+**Result**: Non-technical users can now install with a single command, and the script handles all setup automatically.
 
 ## Conclusion
 
