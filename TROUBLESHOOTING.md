@@ -24,9 +24,9 @@ export SSL_CERT_DIR="/etc/ssl/certs"
 - Setting these env vars points Go to the correct certificate location
 
 **Platforms affected:**
-- ✅ macOS (needs fix)
-- ❌ Linux (works out of box)
-- ❌ Windows (works out of box)
+- macOS (needs fix)
+- Linux (works out of box)
+- Windows (works out of box)
 
 ---
 
@@ -61,10 +61,10 @@ Error 404: model not found for createCachedContent
 **Solution:**
 
 Some models don't support caching. Use a supported model:
-- ✅ gemini-2.5-flash
-- ✅ gemini-1.5-flash
-- ✅ gemini-1.5-pro
-- ❌ gemini-3.0-flash (no cache support)
+- gemini-2.5-flash (supports caching)
+- gemini-1.5-flash (supports caching)
+- gemini-1.5-pro (supports caching)
+- gemini-3.0-flash (no cache support)
 
 ```bash
 ./server -cache . -model gemini-2.5-flash
