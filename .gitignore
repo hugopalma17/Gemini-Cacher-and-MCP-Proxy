@@ -2,6 +2,7 @@
 !.gitignore
 !main.go
 !README.md
+!TROUBLESHOOTING.md
 !LICENSE
 !go.mod
 !go.sum

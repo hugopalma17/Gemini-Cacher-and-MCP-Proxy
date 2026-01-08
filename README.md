@@ -118,6 +118,18 @@ List available models:
 ./server -list-models
 ```
 
+### macOS Certificate Issues
+
+If you encounter TLS/certificate errors on macOS, set environment variables:
+
+```bash
+export SSL_CERT_FILE="/etc/ssl/cert.pem"
+export SSL_CERT_DIR="/etc/ssl/certs"
+./server -cache .
+```
+
+**Note**: Linux and Windows users typically don't need this.
+
 ## API Endpoints
 
 The server exposes multiple APIs for compatibility with different tools.
@@ -288,6 +300,10 @@ customgemini/
     assets/         Static files (embedded at compile time)
   logs/             Server logs
 ```
+
+## Troubleshooting
+
+Having issues? See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common problems and solutions.
 
 ## License
 

@@ -16,15 +16,15 @@
     <link rel="stylesheet" href="https://unpkg.com/@iconscout/unicons@4.0.8/css/line.css">
     <style>
         :root {
-            --bg-color: #0f172a;
-            --sidebar-bg: #1e293b;
-            --chat-bg: #0f172a;
-            --accent-color: #38bdf8;
-            --text-color: #f8fafc;
-            --msg-user: #1e293b;
-            --msg-bot: #334155;
-            --glass: rgba(255, 255, 255, 0.05);
-            --danger: #ef4444;
+            --bg-color: #0a0a0a;
+            --sidebar-bg: #141414;
+            --chat-bg: #0a0a0a;
+            --accent-color: #a78bfa;
+            --text-color: #e5e5e5;
+            --msg-user: #1a1a1a;
+            --msg-bot: #1f1f1f;
+            --glass: rgba(255, 255, 255, 0.03);
+            --danger: #f87171;
         }
         * { box-sizing: border-box; }
         body {
@@ -104,7 +104,7 @@
         #sidebar {
             width: 260px;
             background: var(--sidebar-bg);
-            border-right: 1px solid rgba(255,255,255,0.1);
+            border-right: 1px solid rgba(255,255,255,0.05);
             display: flex;
             flex-direction: column;
             padding: 0.75rem;
@@ -315,7 +315,7 @@
         /* Topbar */
         #topbar {
             background: var(--sidebar-bg);
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
             padding: 0.5rem 1rem;
             display: flex;
             align-items: center;
@@ -326,7 +326,7 @@
         #menu-toggle {
             display: none;
             background: var(--glass);
-            border: 1px solid rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.1);
             color: var(--accent-color);
             width: 36px;
             height: 36px;
@@ -338,7 +338,7 @@
             transition: background 0.2s;
         }
         #menu-toggle:hover {
-            background: rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.08);
         }
         #topbar h1 {
             font-size: 1rem;
@@ -418,7 +418,7 @@
             align-self: flex-start;
             background: var(--msg-bot);
             border-bottom-left-radius: 2px;
-            border-left: 4px solid var(--accent-color);
+            border-left: 3px solid var(--accent-color);
         }
 
         /* Markdown Styles */
@@ -488,7 +488,7 @@
         #input-wrapper {
             background: var(--glass);
             backdrop-filter: blur(10px);
-            border-top: 1px solid rgba(255,255,255,0.1);
+            border-top: 1px solid rgba(255,255,255,0.05);
             padding: 1rem 2rem;
         }
         #attachments {
@@ -546,8 +546,8 @@
         }
         #msg-input {
             flex-grow: 1;
-            background: rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.08);
             color: #fff;
             padding: 0.85rem 1rem;
             border-radius: 8px;
@@ -560,7 +560,7 @@
             line-height: 1.5;
             font-family: inherit;
         }
-        #msg-input:focus { border-color: var(--accent-color); }
+        #msg-input:focus { border-color: var(--accent-color); box-shadow: 0 0 0 1px var(--accent-color); }
         #send-btn {
             background: var(--accent-color);
             color: #000;
@@ -655,26 +655,36 @@
         <h2 style="margin-top: 0.5rem;"><i class="uil uil-robot"></i> Model</h2>
         <select id="model-select"></select>
 
-        <h2 style="margin-top: 0.5rem;"><i class="uil uil-setting"></i> Options</h2>
-        <label class="option-label" id="agentic-label">
-            <input type="checkbox" id="agentic-toggle" checked>
-            <i class="uil uil-robot"></i> Agentic Mode
-        </label>
-        <label class="option-label" style="margin-top: 0.5rem;">
-            <input type="checkbox" id="search-toggle">
-            <i class="uil uil-search"></i> Google Search
-        </label>
-        
-        <button class="help-btn" onclick="resetSession()" style="margin-top: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: var(--danger);">
-            <i class="uil uil-redo"></i> New Session
-        </button>
+        <h2 style="margin-top: 0.5rem;" onclick="toggleSection('options-section', this)">
+            <i class="uil uil-angle-down toggle-icon"></i>
+            <i class="uil uil-setting"></i> Options
+        </h2>
+        <div id="options-section" class="collapsible-section" style="max-height: 500px;">
+            <label class="option-label" id="agentic-label">
+                <input type="checkbox" id="agentic-toggle" checked>
+                <i class="uil uil-robot"></i> Agentic Mode
+            </label>
+            <label class="option-label" style="margin-top: 0.5rem;">
+                <input type="checkbox" id="search-toggle">
+                <i class="uil uil-search"></i> Google Search
+            </label>
+            
+            <button class="help-btn" onclick="resetSession()" style="margin-top: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: var(--danger);">
+                <i class="uil uil-redo"></i> New Session
+            </button>
 
-        <button class="help-btn" onclick="showSettings()" style="margin-top: 0.5rem;">
-            <i class="uil uil-sliders-v-alt"></i> Advanced Settings
-        </button>
+            <button class="help-btn" onclick="showSettings()" style="margin-top: 0.5rem;">
+                <i class="uil uil-sliders-v-alt"></i> Advanced Settings
+            </button>
+        </div>
 
-        <h2 style="margin-top: 0.5rem;"><i class="uil uil-wrench"></i> Tool Activity</h2>
-        <div id="tool-activity" style="flex-grow: 1; margin-bottom: 0.5rem;"></div>
+        <h2 style="margin-top: 0.5rem;" onclick="toggleSection('tool-section', this)">
+            <i class="uil uil-angle-down toggle-icon"></i>
+            <i class="uil uil-wrench"></i> Tool Activity
+        </h2>
+        <div id="tool-section" class="collapsible-section" style="max-height: 300px; flex-grow: 1;">
+            <div id="tool-activity" style="margin-bottom: 0.5rem;"></div>
+        </div>
 
         <div id="cache-status" style="padding-top: 0.75rem; font-size: 0.7rem; color: rgba(255,255,255,0.4); border-top: 1px solid rgba(255,255,255,0.1); flex-shrink: 0;">
             <div>Cache: <span id="cache-name">Checking...</span></div>
@@ -1318,6 +1328,20 @@ go run main.go -debug             # Debug logging</code></pre>
                 toggleMobileSidebar();
             }
         });
+        
+        // Collapsible sections toggle
+        function toggleSection(sectionId, headerElement) {
+            const section = document.getElementById(sectionId);
+            const icon = headerElement.querySelector('.toggle-icon');
+            
+            if (section.classList.contains('collapsed')) {
+                section.classList.remove('collapsed');
+                headerElement.classList.remove('collapsed');
+            } else {
+                section.classList.add('collapsed');
+                headerElement.classList.add('collapsed');
+            }
+        }
         
         // Settings Modal
         let advancedSettings = {
