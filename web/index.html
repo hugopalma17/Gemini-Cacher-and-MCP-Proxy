@@ -391,7 +391,7 @@
         <select id="model-select"></select>
 
         <h2 style="margin-top: 1rem;"><i class="uil uil-setting"></i> Options</h2>
-        <label class="option-label">
+        <label class="option-label" id="agentic-label">
             <input type="checkbox" id="agentic-toggle" checked>
             <i class="uil uil-robot"></i> Agentic Mode
         </label>
@@ -399,12 +399,17 @@
             <input type="checkbox" id="search-toggle">
             <i class="uil uil-search"></i> Google Search
         </label>
+        
+        <button class="help-btn" onclick="resetSession()" style="margin-top: 0.75rem; background: rgba(239, 68, 68, 0.2); border-color: var(--danger); color: var(--danger);">
+            <i class="uil uil-redo"></i> New Session
+        </button>
 
         <h2 style="margin-top: 1rem;"><i class="uil uil-wrench"></i> Tool Activity</h2>
         <div id="tool-activity"></div>
 
         <div id="cache-status" style="margin-top: auto; padding-top: 1rem; font-size: 0.75rem; color: rgba(255,255,255,0.4); border-top: 1px solid rgba(255,255,255,0.1);">
-            Cache: <span id="cache-name">Checking...</span>
+            <div>Cache: <span id="cache-name">Checking...</span></div>
+            <div style="margin-top: 0.25rem;">Session: <span id="session-id" style="font-family: monospace; font-size: 0.7rem;">Loading...</span></div>
         </div>
         <div class="help-btn" onclick="showHelp()"><i class="uil uil-question-circle"></i> Integration Help</div>
     </div>
@@ -484,10 +489,12 @@ go run main.go -debug             # Debug logging</code></pre>
     </div>
 
     <script>
-        // State
+        // State - persist session ID across page refreshes
+        let sessionID = sessionStorage.getItem('sessionID') || 'web-' + Math.random().toString(36).substr(2, 9);
+        sessionStorage.setItem('sessionID', sessionID);
+        
         let selectedFiles = new Set();
         let pastedImages = [];
-        let sessionID = 'web-' + Math.random().toString(36).substr(2, 9);
         let activeCache = '{{.CacheName}}';
         const defaultModel = '{{.CacheModel}}';
 
@@ -500,31 +507,84 @@ go run main.go -debug             # Debug logging</code></pre>
         const cacheEl = document.getElementById('cache-name');
         const badgeEl = document.getElementById('badge-cache');
         const toolActivity = document.getElementById('tool-activity');
+        
+        // Log session info for debugging
+        console.log('[Session] Using session ID:', sessionID);
 
-        // Tool activity helper
+        // Tool activity helper with localStorage persistence
+        function loadToolActivityFromStorage() {
+            try {
+                const stored = localStorage.getItem('toolActivity_' + sessionID);
+                if (stored) {
+                    const logs = JSON.parse(stored);
+                    logs.forEach(log => {
+                        const div = document.createElement('div');
+                        div.className = 'tool-log';
+                        div.innerHTML = `<i class="uil uil-cog"></i><span class="tool-name">${log.name}</span><span class="tool-args">${log.args}</span>`;
+                        toolActivity.appendChild(div);
+                    });
+                }
+            } catch (e) {
+                console.warn('[Tool Activity] Failed to load from storage:', e);
+            }
+        }
+
+        function saveToolActivityToStorage() {
+            try {
+                const logs = Array.from(toolActivity.querySelectorAll('.tool-log')).map(log => ({
+                    name: log.querySelector('.tool-name')?.textContent || '',
+                    args: log.querySelector('.tool-args')?.textContent || ''
+                }));
+                localStorage.setItem('toolActivity_' + sessionID, JSON.stringify(logs));
+            } catch (e) {
+                console.warn('[Tool Activity] Failed to save to storage:', e);
+            }
+        }
+
         function addToolLog(toolName, args) {
             const log = document.createElement('div');
             log.className = 'tool-log';
             const argsStr = typeof args === 'object' ? JSON.stringify(args) : String(args);
-            log.innerHTML = `<i class="uil uil-cog"></i><span class="tool-name">${toolName}</span><span class="tool-args">${argsStr.substring(0, 80)}${argsStr.length > 80 ? '...' : ''}</span>`;
+            const truncated = argsStr.substring(0, 80) + (argsStr.length > 80 ? '...' : '');
+            log.innerHTML = `<i class="uil uil-cog"></i><span class="tool-name">${toolName}</span><span class="tool-args">${truncated}</span>`;
             toolActivity.insertBefore(log, toolActivity.firstChild);
+            
             // Keep only last 10 logs
             while (toolActivity.children.length > 10) {
                 toolActivity.removeChild(toolActivity.lastChild);
             }
+            
+            // Persist to storage
+            saveToolActivityToStorage();
+            console.log('[Tool Activity] Logged:', toolName, truncated);
         }
 
         function clearToolActivity() {
             toolActivity.innerHTML = '';
+            try {
+                localStorage.removeItem('toolActivity_' + sessionID);
+            } catch (e) {
+                console.warn('[Tool Activity] Failed to clear storage:', e);
+            }
         }
 
-        // Init cache display
+        // Init cache display and session info
         if (activeCache) {
             cacheEl.textContent = activeCache.split('/').pop();
             badgeEl.style.display = 'inline-block';
         } else {
             cacheEl.textContent = 'None';
         }
+        
+        // Display session ID
+        const sessionIdEl = document.getElementById('session-id');
+        if (sessionIdEl) {
+            sessionIdEl.textContent = sessionID;
+            sessionIdEl.title = 'Session ID: ' + sessionID;
+        }
+        
+        // Load persisted tool activity
+        loadToolActivityFromStorage();
 
         // File type icons
         const fileIcons = {
@@ -741,11 +801,28 @@ go run main.go -debug             # Debug logging</code></pre>
                 typing.remove();
                 if (res.ok) {
                     const data = await res.json();
+                    console.log('[Response] Received:', {
+                        tool_calls: data.tool_calls,
+                        tokens: data.total_tokens,
+                        cost: data.request_cost_brl
+                    });
+                    
                     // Show tool calls in activity panel
                     if (data.tool_calls && data.tool_calls.length > 0) {
+                        console.log('[Tool Calls] Processing', data.tool_calls.length, 'tool calls');
                         data.tool_calls.forEach(tc => {
-                            addToolLog(tc.split(':')[0] || tc, tc.split(':').slice(1).join(':') || '');
+                            // Parse "Executed: tool_name" format
+                            const match = tc.match(/Executed:\s*(\w+)/i);
+                            if (match) {
+                                addToolLog(match[1], tc.replace(/Executed:\s*\w+\s*/i, '').trim() || '✓');
+                            } else {
+                                // Fallback to colon-split
+                                const parts = tc.split(':');
+                                addToolLog(parts[0] || tc, parts.slice(1).join(':').trim() || '✓');
+                            }
                         });
+                    } else {
+                        console.log('[Tool Calls] None reported in response');
                     }
                     appendMessage(data.text, 'bot', null, data);
                 } else {
@@ -829,6 +906,50 @@ go run main.go -debug             # Debug logging</code></pre>
 
         function showHelp() { document.getElementById('help-modal').style.display = 'flex'; }
         function closeHelp() { document.getElementById('help-modal').style.display = 'none'; }
+        
+        function resetSession() {
+            if (confirm('Start a new session? This will clear conversation history but keep tool activity logs.')) {
+                // Generate new session ID
+                sessionID = 'web-' + Math.random().toString(36).substr(2, 9);
+                sessionStorage.setItem('sessionID', sessionID);
+                
+                // Update UI
+                const sessionIdEl = document.getElementById('session-id');
+                if (sessionIdEl) {
+                    sessionIdEl.textContent = sessionID;
+                    sessionIdEl.title = 'Session ID: ' + sessionID;
+                }
+                
+                // Clear chat window but keep first message
+                while (chatWindow.children.length > 1) {
+                    chatWindow.removeChild(chatWindow.lastChild);
+                }
+                
+                console.log('[Session] Reset to new ID:', sessionID);
+                appendMessage('Session reset. Starting fresh with ID: ' + sessionID, 'bot');
+            }
+        }
+        
+        // Add visual feedback for agentic mode toggle
+        document.getElementById('agentic-toggle').addEventListener('change', function(e) {
+            const label = document.getElementById('agentic-label');
+            if (e.target.checked) {
+                label.style.background = 'rgba(56, 189, 248, 0.2)';
+                label.style.borderColor = 'var(--accent-color)';
+                console.log('[Agentic Mode] ENABLED - Tools available:', 'write_file, list_files, read_file');
+            } else {
+                label.style.background = 'var(--glass)';
+                label.style.borderColor = 'transparent';
+                console.log('[Agentic Mode] DISABLED - No file tools');
+            }
+        });
+        
+        // Trigger initial state
+        if (document.getElementById('agentic-toggle').checked) {
+            const label = document.getElementById('agentic-label');
+            label.style.background = 'rgba(56, 189, 248, 0.2)';
+            label.style.border = '1px solid var(--accent-color)';
+        }
 
         // Keyboard shortcuts
         msgInput.onkeypress = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
