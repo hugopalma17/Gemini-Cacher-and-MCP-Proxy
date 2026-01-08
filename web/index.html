@@ -36,66 +36,157 @@
             height: 100vh;
             overflow: hidden;
         }
+        
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            #sidebar {
+                position: fixed;
+                top: 0;
+                left: -280px;
+                height: 100vh;
+                z-index: 1001;
+                transition: left 0.3s ease-out;
+                box-shadow: 2px 0 10px rgba(0,0,0,0.5);
+            }
+            #sidebar.mobile-open {
+                left: 0;
+            }
+            #menu-toggle {
+                display: flex;
+            }
+            #main-container {
+                width: 100%;
+            }
+            #topbar {
+                justify-content: space-between;
+                padding-left: 3rem;
+            }
+            #topbar h1 {
+                flex-grow: 1;
+                justify-content: center;
+            }
+            #session-stats {
+                flex-direction: column;
+                gap: 0.25rem;
+            }
+            .stat-item {
+                font-size: 0.7rem;
+                padding: 0.2rem 0.4rem;
+            }
+            #chat-window {
+                max-width: 100%;
+                padding: 1rem;
+            }
+            .message {
+                max-width: 95%;
+            }
+            #input-wrapper {
+                padding: 0.75rem 1rem;
+            }
+            /* Overlay when sidebar is open */
+            body::after {
+                content: '';
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 1000;
+            }
+            body.sidebar-overlay::after {
+                display: block;
+            }
+        }
 
         /* Sidebar */
         #sidebar {
-            width: 280px;
+            width: 260px;
             background: var(--sidebar-bg);
             border-right: 1px solid rgba(255,255,255,0.1);
             display: flex;
             flex-direction: column;
-            padding: 1rem;
+            padding: 0.75rem;
             overflow: hidden;
             flex-shrink: 0;
         }
-        #sidebar h2 { font-size: 1rem; margin-bottom: 0.75rem; color: var(--accent-color); display: flex; align-items: center; gap: 0.4rem; }
+        #sidebar h2 { 
+            font-size: 0.85rem; 
+            margin: 0.5rem 0 0.35rem 0; 
+            padding: 0.4rem 0.5rem;
+            color: var(--accent-color); 
+            display: flex; 
+            align-items: center; 
+            gap: 0.4rem;
+            cursor: pointer;
+            border-radius: 4px;
+            user-select: none;
+        }
+        #sidebar h2:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        #sidebar h2 i.toggle-icon {
+            font-size: 0.75rem;
+            transition: transform 0.2s;
+        }
+        #sidebar h2.collapsed i.toggle-icon {
+            transform: rotate(-90deg);
+        }
+        .collapsible-section {
+            overflow: hidden;
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+        }
+        .collapsible-section.collapsed {
+            max-height: 0 !important;
+            opacity: 0;
+        }
         .caching-badge {
-            font-size: 0.6rem;
+            font-size: 0.55rem;
             background: var(--accent-color);
             color: #000;
-            padding: 2px 6px;
-            border-radius: 10px;
+            padding: 2px 5px;
+            border-radius: 8px;
             font-weight: bold;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.5rem;
             display: inline-block;
         }
         .help-btn {
             background: var(--glass);
             border: 1px solid rgba(255,255,255,0.1);
             color: var(--accent-color);
-            padding: 0.5rem;
+            padding: 0.4rem 0.6rem;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 0.8rem;
-            margin-top: 0.75rem;
+            font-size: 0.75rem;
+            margin-top: 0.4rem;
             text-align: center;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 0.4rem;
+            gap: 0.35rem;
         }
         .help-btn:hover { background: rgba(255,255,255,0.1); }
 
         /* File Tree */
         #file-tree {
-            flex-grow: 1;
             overflow-y: auto;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
         }
         .tree-item {
             display: flex;
             align-items: center;
-            padding: 0.35rem 0.5rem;
+            padding: 0.25rem 0.4rem;
             cursor: pointer;
-            border-radius: 4px;
-            gap: 0.5rem;
+            border-radius: 3px;
+            gap: 0.4rem;
             user-select: none;
         }
         .tree-item:hover { background: rgba(255,255,255,0.08); }
         .tree-item.selected { background: var(--accent-color); color: #000; }
-        .tree-item i { font-size: 1rem; flex-shrink: 0; }
-        .tree-item .name { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .tree-children { margin-left: 1rem; display: none; }
+        .tree-item i { font-size: 0.9rem; flex-shrink: 0; }
+        .tree-item .name { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; }
+        .tree-children { margin-left: 0.75rem; display: none; }
         .tree-children.expanded { display: block; }
         .tree-folder > .tree-item i.folder-icon { transition: transform 0.2s; }
         .tree-folder.open > .tree-item i.folder-icon { transform: rotate(90deg); }
@@ -225,42 +316,68 @@
         #topbar {
             background: var(--sidebar-bg);
             border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding: 0.75rem 1.5rem;
+            padding: 0.5rem 1rem;
             display: flex;
             align-items: center;
             justify-content: space-between;
             flex-shrink: 0;
+            position: relative;
+        }
+        #menu-toggle {
+            display: none;
+            background: var(--glass);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: var(--accent-color);
+            width: 36px;
+            height: 36px;
+            border-radius: 6px;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            transition: background 0.2s;
+        }
+        #menu-toggle:hover {
+            background: rgba(255,255,255,0.1);
         }
         #topbar h1 {
-            font-size: 1.25rem;
+            font-size: 1rem;
             margin: 0;
             color: var(--accent-color);
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 0.4rem;
+        }
+        #topbar h1 i {
+            font-size: 1.1rem;
         }
         #session-stats {
             display: flex;
             align-items: center;
-            gap: 1.5rem;
-            font-size: 0.9rem;
+            gap: 1rem;
+            font-size: 0.8rem;
         }
         .stat-item {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.4rem 0.75rem;
+            gap: 0.4rem;
+            padding: 0.3rem 0.6rem;
             background: var(--glass);
-            border-radius: 6px;
+            border-radius: 4px;
+        }
+        .stat-item i {
+            font-size: 0.9rem;
+            opacity: 0.7;
         }
         .stat-value {
             font-family: monospace;
             color: var(--accent-color);
             font-weight: bold;
+            font-size: 0.85rem;
         }
         .stat-label {
-            color: rgba(255,255,255,0.7);
-            font-size: 0.85rem;
+            color: rgba(255,255,255,0.6);
+            font-size: 0.75rem;
         }
 
         /* Main Chat */
@@ -289,7 +406,7 @@
             animation: fadeIn 0.3s ease-out;
             word-wrap: break-word;
             overflow-wrap: break-word;
-            overflow-x: auto;
+            word-break: break-word;
         }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .user-msg {
@@ -305,10 +422,27 @@
         }
 
         /* Markdown Styles */
-        .message p { margin: 0 0 1rem 0; }
+        .message p { margin: 0 0 1rem 0; word-break: normal; }
         .message p:last-child { margin-bottom: 0; }
-        .message code:not(pre code) { background: rgba(0,0,0,0.4); padding: 0.15rem 0.4rem; border-radius: 4px; font-family: 'SF Mono', Monaco, monospace; font-size: 0.9em; color: #f472b6; }
-        .message pre { position: relative; background: #1a1a2e !important; padding: 1rem; padding-top: 2.5rem; border-radius: 8px; overflow-x: auto; margin: 1rem 0; max-width: 100%; }
+        .message code:not(pre code) { 
+            background: rgba(0,0,0,0.4); 
+            padding: 0.15rem 0.4rem; 
+            border-radius: 4px; 
+            font-family: 'SF Mono', Monaco, monospace; 
+            font-size: 0.9em; 
+            color: #f472b6;
+            word-break: break-all;
+        }
+        .message pre { 
+            position: relative; 
+            background: #1a1a2e !important; 
+            padding: 1rem; 
+            padding-top: 2.5rem; 
+            border-radius: 8px; 
+            overflow-x: auto; 
+            margin: 1rem 0; 
+            max-width: 100%;
+        }
         .message pre code { background: transparent; padding: 0; color: inherit; font-size: 0.85rem; }
         .message ul, .message ol { margin: 0.5rem 0 1rem 1.5rem; }
         .message li { margin-bottom: 0.4rem; }
@@ -419,6 +553,12 @@
             border-radius: 8px;
             outline: none;
             font-size: 1rem;
+            resize: none;
+            min-height: 50px;
+            max-height: 150px;
+            overflow-y: auto;
+            line-height: 1.5;
+            font-family: inherit;
         }
         #msg-input:focus { border-color: var(--accent-color); }
         #send-btn {
@@ -458,24 +598,27 @@
         .option-label {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            font-size: 0.85rem;
+            gap: 0.4rem;
+            font-size: 0.8rem;
             cursor: pointer;
-            padding: 0.5rem;
+            padding: 0.35rem 0.5rem;
             border-radius: 4px;
             background: var(--glass);
         }
         .option-label:hover { background: rgba(255,255,255,0.08); }
-        .option-label input { width: 1rem; height: 1rem; accent-color: var(--accent-color); }
+        .option-label input { width: 14px; height: 14px; accent-color: var(--accent-color); }
+        .option-label i { font-size: 0.9rem; }
 
         /* Tool Activity */
         #tool-activity {
-            max-height: 150px;
             overflow-y: auto;
             font-size: 0.75rem;
             background: rgba(0,0,0,0.2);
-            border-radius: 6px;
-            padding: 0.5rem;
+            border-radius: 4px;
+            padding: 0.4rem;
+            min-height: 60px;
+            max-height: 300px;
+            flex-grow: 1;
         }
         #tool-activity:empty::before {
             content: 'No recent activity';
@@ -500,13 +643,19 @@
 <body>
     <div id="sidebar">
         <div class="caching-badge" id="badge-cache" style="display: none;">CACHE ACTIVE</div>
-        <h2><i class="uil uil-folder-open"></i> Files</h2>
-        <div id="file-tree">Loading...</div>
+        
+        <h2 onclick="toggleSection('files-section', this)">
+            <i class="uil uil-angle-down toggle-icon"></i>
+            <i class="uil uil-folder-open"></i> Files
+        </h2>
+        <div id="files-section" class="collapsible-section" style="max-height: 300px;">
+            <div id="file-tree">Loading...</div>
+        </div>
 
-        <h2 style="margin-top: 1rem;"><i class="uil uil-robot"></i> Model</h2>
+        <h2 style="margin-top: 0.5rem;"><i class="uil uil-robot"></i> Model</h2>
         <select id="model-select"></select>
 
-        <h2 style="margin-top: 1rem;"><i class="uil uil-setting"></i> Options</h2>
+        <h2 style="margin-top: 0.5rem;"><i class="uil uil-setting"></i> Options</h2>
         <label class="option-label" id="agentic-label">
             <input type="checkbox" id="agentic-toggle" checked>
             <i class="uil uil-robot"></i> Agentic Mode
@@ -524,10 +673,10 @@
             <i class="uil uil-sliders-v-alt"></i> Advanced Settings
         </button>
 
-        <h2 style="margin-top: 1rem;"><i class="uil uil-wrench"></i> Tool Activity</h2>
-        <div id="tool-activity"></div>
+        <h2 style="margin-top: 0.5rem;"><i class="uil uil-wrench"></i> Tool Activity</h2>
+        <div id="tool-activity" style="flex-grow: 1; margin-bottom: 0.5rem;"></div>
 
-        <div id="cache-status" style="margin-top: auto; padding-top: 1rem; font-size: 0.75rem; color: rgba(255,255,255,0.4); border-top: 1px solid rgba(255,255,255,0.1);">
+        <div id="cache-status" style="padding-top: 0.75rem; font-size: 0.7rem; color: rgba(255,255,255,0.4); border-top: 1px solid rgba(255,255,255,0.1); flex-shrink: 0;">
             <div>Cache: <span id="cache-name">Checking...</span></div>
             <div style="margin-top: 0.25rem;">Session: <span id="session-id" style="font-family: monospace; font-size: 0.7rem;">Loading...</span></div>
         </div>
@@ -652,6 +801,9 @@ go run main.go -debug             # Debug logging</code></pre>
 
     <div id="main-container">
         <div id="topbar">
+            <button id="menu-toggle" onclick="toggleMobileSidebar()" title="Toggle Menu">
+                <i class="uil uil-apps"></i>
+            </button>
             <h1><i class="uil uil-brain"></i> Antigravity Brain</h1>
             <div id="session-stats">
                 <div class="stat-item">
@@ -676,7 +828,7 @@ go run main.go -debug             # Debug logging</code></pre>
         <div id="input-wrapper">
             <div id="attachments"></div>
             <div id="input-row">
-                <input type="text" id="msg-input" placeholder="Type a message or paste an image..." autofocus>
+                <textarea id="msg-input" placeholder="Type a message or paste an image..." autofocus rows="1"></textarea>
                 <button id="send-btn" onclick="sendMessage()"><i class="uil uil-message"></i> Send</button>
             </div>
         </div>
@@ -1038,12 +1190,14 @@ go run main.go -debug             # Debug logging</code></pre>
                     console.log('[Response] Received:', {
                         tool_calls: data.tool_calls,
                         tokens: data.total_tokens,
-                        cost: data.cost
+                        cost: data.cost || data.request_cost_brl
                     });
                     
                     // Update session stats
-                    if (data.cost && data.total_tokens) {
-                        addToStats(data.cost, data.total_tokens);
+                    const responseCost = data.cost || data.request_cost_brl || 0;
+                    const responseTokens = data.total_tokens || 0;
+                    if (responseCost > 0 && responseTokens > 0) {
+                        addToStats(responseCost, responseTokens);
                     }
                     
                     // Show tool calls in activity panel
@@ -1145,6 +1299,25 @@ go run main.go -debug             # Debug logging</code></pre>
 
         function showHelp() { document.getElementById('help-modal').style.display = 'flex'; }
         function closeHelp() { document.getElementById('help-modal').style.display = 'none'; }
+        
+        // Mobile sidebar toggle
+        function toggleMobileSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const body = document.body;
+            sidebar.classList.toggle('mobile-open');
+            body.classList.toggle('sidebar-overlay');
+        }
+        
+        // Close sidebar when clicking overlay
+        document.addEventListener('click', (e) => {
+            const sidebar = document.getElementById('sidebar');
+            const menuBtn = document.getElementById('menu-toggle');
+            if (body.classList.contains('sidebar-overlay') && 
+                !sidebar.contains(e.target) && 
+                !menuBtn.contains(e.target)) {
+                toggleMobileSidebar();
+            }
+        });
         
         // Settings Modal
         let advancedSettings = {
@@ -1271,9 +1444,15 @@ go run main.go -debug             # Debug logging</code></pre>
             label.style.border = '1px solid var(--accent-color)';
         }
 
+        // Auto-grow textarea
+        msgInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+        });
+        
         // Keyboard shortcuts
         msgInput.onkeypress = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
-        document.onkeydown = (e) => { if (e.key === 'Escape') closeHelp(); };
+        document.onkeydown = (e) => { if (e.key === 'Escape') { closeHelp(); closeSettings(); } };
 
         // Init
         loadTree();

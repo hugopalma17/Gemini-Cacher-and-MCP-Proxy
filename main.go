@@ -29,7 +29,7 @@ var assetsFS embed.FS
 
 // --- CONFIGURATION ---
 const (
-	Version         = "1.2.0"
+	Version         = "1.2.1"
 	DefaultPort     = ":8080"
 	DefaultModel    = "gemini-3.0-flash"
 	WorkDir         = "."
@@ -90,7 +90,8 @@ type ChatResponse struct {
 	PromptTokens   int         `json:"prompt_tokens"`
 	ResponseTokens int         `json:"response_tokens"`
 	TotalTokens    int         `json:"total_tokens"`
-	Cost           float64     `json:"request_cost_brl"`
+	Cost           float64     `json:"cost"`              // Alias for frontend
+	RequestCost    float64     `json:"request_cost_brl"`  // Legacy field
 	TotalCost      float64     `json:"session_total_brl"`
 }
 
@@ -1587,6 +1588,7 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		ResponseTokens: respToks,
 		TotalTokens:    totalToks,
 		Cost:           requestCost,
+		RequestCost:    requestCost, // Legacy field
 		TotalCost:      totalCost,
 	})
 }
