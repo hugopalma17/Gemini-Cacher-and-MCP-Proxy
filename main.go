@@ -72,13 +72,15 @@ var modelCosts = map[string]struct{ In, Out float64 }{
 }
 
 type ChatRequest struct {
-	SessionID  string   `json:"session_id"`
-	Model      string   `json:"model"`
-	Message    string   `json:"message"`
-	CacheID    string   `json:"cache_id"`    // Optional override
-	UseSearch  bool     `json:"use_search"`  // Enable Google Search grounding
-	UseAgentic bool     `json:"use_agentic"` // Enable file tools (write_file, etc.)
-	Images     []string `json:"images"`      // Base64 encoded images from frontend
+	SessionID      string                 `json:"session_id"`
+	Model          string                 `json:"model"`
+	Message        string                 `json:"message"`
+	CacheID        string                 `json:"cache_id"`      // Optional override
+	UseSearch      bool                   `json:"use_search"`    // Enable Google Search grounding
+	UseAgentic     bool                   `json:"use_agentic"`   // Enable file tools (write_file, etc.)
+	Images         []string               `json:"images"`        // Base64 encoded images from frontend
+	Temperature    *float32               `json:"temperature"`   // Optional temperature override
+	SafetySettings map[string]string      `json:"safety_settings"` // Optional safety settings override
 }
 
 type ChatResponse struct {
@@ -413,6 +415,8 @@ func BuildAndGetCache(client *genai.Client, path, model string) string {
 		},
 		Tools: []*genai.Tool{
 			{FunctionDeclarations: fileTools},
+			// Note: Google Search cannot be combined with FunctionDeclarations in cached content
+			// Users should disable Google Search when using cached content with agentic mode
 		},
 		TTL: time.Duration(TTLMinutes) * time.Minute,
 	})
@@ -1252,6 +1256,54 @@ func handleFiles(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"files": files})
 }
 
+// buildSafetySettings creates safety settings from request or uses defaults
+func buildSafetySettings(settings map[string]string) []*genai.SafetySetting {
+	// Helper to convert string threshold to genai constant
+	getThreshold := func(level string) genai.HarmBlockThreshold {
+		switch level {
+		case "BLOCK_NONE":
+			return genai.HarmBlockThresholdBlockNone
+		case "BLOCK_ONLY_HIGH":
+			return genai.HarmBlockThresholdBlockOnlyHigh
+		case "BLOCK_MEDIUM_AND_ABOVE":
+			return genai.HarmBlockThresholdBlockMediumAndAbove
+		case "BLOCK_LOW_AND_ABOVE":
+			return genai.HarmBlockThresholdBlockLowAndAbove
+		default:
+			return genai.HarmBlockThresholdBlockNone // Default to most permissive
+		}
+	}
+	
+	// Default: BLOCK_NONE for all categories (for coding assistant use case)
+	harassmentThreshold := genai.HarmBlockThresholdBlockNone
+	hateThreshold := genai.HarmBlockThresholdBlockNone
+	sexualThreshold := genai.HarmBlockThresholdBlockNone
+	dangerousThreshold := genai.HarmBlockThresholdBlockNone
+	
+	// Override with request settings if provided
+	if settings != nil {
+		if val, ok := settings["harassment"]; ok {
+			harassmentThreshold = getThreshold(val)
+		}
+		if val, ok := settings["hate"]; ok {
+			hateThreshold = getThreshold(val)
+		}
+		if val, ok := settings["sexual"]; ok {
+			sexualThreshold = getThreshold(val)
+		}
+		if val, ok := settings["dangerous"]; ok {
+			dangerousThreshold = getThreshold(val)
+		}
+	}
+	
+	return []*genai.SafetySetting{
+		{Category: genai.HarmCategoryHarassment, Threshold: harassmentThreshold},
+		{Category: genai.HarmCategoryHateSpeech, Threshold: hateThreshold},
+		{Category: genai.HarmCategorySexuallyExplicit, Threshold: sexualThreshold},
+		{Category: genai.HarmCategoryDangerousContent, Threshold: dangerousThreshold},
+	}
+}
+
 func handleChat(w http.ResponseWriter, r *http.Request) {
 	var req ChatRequest
 	if r.Method == http.MethodPost {
@@ -1294,26 +1346,23 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Build config with optional overrides from request
+	temperature := float32(0.2)
+	if req.Temperature != nil {
+		temperature = *req.Temperature
+	}
+	
 	config := &genai.GenerateContentConfig{
-		Temperature: genai.Ptr[float32](0.2),
-		SafetySettings: []*genai.SafetySetting{
-			{Category: genai.HarmCategoryHarassment, Threshold: genai.HarmBlockThresholdBlockNone},
-			{Category: genai.HarmCategoryHateSpeech, Threshold: genai.HarmBlockThresholdBlockNone},
-			{Category: genai.HarmCategorySexuallyExplicit, Threshold: genai.HarmBlockThresholdBlockNone},
-			{Category: genai.HarmCategoryDangerousContent, Threshold: genai.HarmBlockThresholdBlockNone},
-		},
+		Temperature:    genai.Ptr[float32](temperature),
+		SafetySettings: buildSafetySettings(req.SafetySettings),
 	}
 
 	// Apply cached content if available and not an image model
 	if activeCID != "" {
 		config.CachedContent = activeCID
-		// Note: Tools are already defined in the cached content, don't add them here
-		// Only Google Search can be added dynamically if needed (not in cache)
-		if req.UseSearch {
-			config.Tools = []*genai.Tool{
-				{GoogleSearch: &genai.GoogleSearch{}},
-			}
-		}
+		// Note: When using cached content, ALL tools must be defined in the cache
+		// We cannot add any additional tools (including Google Search) dynamically
+		// The cache already includes file tools, so agentic mode will work
 	} else {
 		// No cache - define tools dynamically
 		var tools []*genai.Tool
@@ -1415,6 +1464,18 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		promptToks = int(res.UsageMetadata.PromptTokenCount)
 		respToks = int(res.UsageMetadata.CandidatesTokenCount)
 		totalToks = int(res.UsageMetadata.TotalTokenCount)
+		cachedToks := int(res.UsageMetadata.CachedContentTokenCount)
+		fmt.Printf("[DEBUG] Token Breakdown: Prompt=%d, Cached=%d, Response=%d, Total=%d\n", 
+			promptToks, cachedToks, respToks, totalToks)
+		
+		// Calculate what Google will ACTUALLY charge
+		nonCachedPrompt := promptToks - cachedToks
+		costCached := (float64(cachedToks) / 1000000.0) * 0.075 * 0.1  // 90% discount
+		costFresh := (float64(nonCachedPrompt) / 1000000.0) * 0.075
+		costOutput := (float64(respToks) / 1000000.0) * 0.30
+		totalCharge := costCached + costFresh + costOutput
+		fmt.Printf("[DEBUG] Cost Breakdown: Cached=$%.6f + Fresh=$%.6f + Output=$%.6f = TOTAL=$%.6f\n",
+			costCached, costFresh, costOutput, totalCharge)
 	}
 	if len(res.Candidates) > 0 {
 		fmt.Printf("[DEBUG] FinishReason: %s\n", res.Candidates[0].FinishReason)
