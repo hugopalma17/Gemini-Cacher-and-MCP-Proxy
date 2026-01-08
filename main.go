@@ -29,14 +29,15 @@ var assetsFS embed.FS
 
 // --- CONFIGURATION ---
 const (
-	Version       = "1.2.0"
-	DefaultPort   = ":8080"
-	DefaultModel  = "gemini-2.0-flash"
-	WorkDir       = "."
-	HistoryPath   = ".history"
-	TTLMinutes    = 120
-	MaxFileBytes  = 256 * 1024 // 256KB cap per file
-	MaxTotalChars = 4000000    // ~1M token safety cap
+	Version         = "1.2.0"
+	DefaultPort     = ":8080"
+	DefaultModel    = "gemini-3.0-flash"
+	WorkDir         = "."
+	HistoryPath     = ".history"
+	TTLMinutes      = 120
+	MaxFileBytes    = 256 * 1024 // 256KB cap per file
+	MaxTotalChars   = 4000000    // ~1M token safety cap
+	MaxHistoryTurns = 8          // Safe limit to prevent API cache invalidation
 )
 
 // --- GLOBAL STATE ---
@@ -67,8 +68,8 @@ var modelCosts = map[string]struct{ In, Out float64 }{
 	"gemini-2.0-flash-lite-preview-02-05": {0.075, 0.30},
 	"gemini-exp-1206":                     {0.00, 0.00},
 	"gemini-2.0-pro-exp-02-05":            {0.00, 0.00},
+	"gemini-2.5-flash":                    {0.075, 0.30}, // Added pricing for gemini-2.5-flash
 }
-
 
 type ChatRequest struct {
 	SessionID  string   `json:"session_id"`
@@ -160,14 +161,18 @@ func main() {
 	debugMode = *debugFlag
 
 	// Capture serverHome (where the executable/source is)
-	wd, _ := os.Getwd()
+	// --- LINTER FIX START ---
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("Could not get current working directory: %v", err)
+	}
 	serverHome = wd
+	// --- LINTER FIX END ---
 
 	// Initialize logging
 	initLogging()
 
 	// Determine project root and cache mode
-	var err error
 	if *cachePath != "" {
 		// Cache mode: use specified path or current directory
 		path := *cachePath
@@ -245,7 +250,6 @@ func main() {
 		cacheModel = *modelName
 		logMsg("--- Running in Clean Mode (no cache) ---")
 	}
-
 
 	// 3. START SERVER
 	// Core endpoints
@@ -360,6 +364,36 @@ func BuildAndGetCache(client *genai.Client, path, model string) string {
 
 	fmt.Println("Uploading to Google Context Cache...")
 
+	// Define tools for agentic mode (included in cache for future use)
+	fileTools := []*genai.FunctionDeclaration{
+		{
+			Name:        "write_file",
+			Description: "Write or create a file with the specified content",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"path":    {Type: genai.TypeString, Description: "Relative path to the file"},
+					"content": {Type: genai.TypeString, Description: "Content to write to the file"},
+				},
+				Required: []string{"path", "content"},
+			},
+		},
+		{
+			Name:        "list_files",
+			Description: "List files in the current directory or subdirectory",
+			Parameters:  &genai.Schema{Type: genai.TypeObject, Properties: map[string]*genai.Schema{"path": {Type: genai.TypeString, Description: "Relative path to list (use '.' for current)"}}},
+		},
+		{
+			Name:        "read_file",
+			Description: "Read the contents of a specific file",
+			Parameters: &genai.Schema{
+				Type:       genai.TypeObject,
+				Properties: map[string]*genai.Schema{"path": {Type: genai.TypeString, Description: "Relative path to the file"}},
+				Required:   []string{"path"},
+			},
+		},
+	}
+
 	// Create the cached content using new SDK API
 	cache, err := client.Caches.Create(ctx, "models/"+model, &genai.CreateCachedContentConfig{
 		DisplayName: "Unified_Project_Brain",
@@ -376,6 +410,9 @@ func BuildAndGetCache(client *genai.Client, path, model string) string {
 				},
 				Role: "user",
 			},
+		},
+		Tools: []*genai.Tool{
+			{FunctionDeclarations: fileTools},
 		},
 		TTL: time.Duration(TTLMinutes) * time.Minute,
 	})
@@ -473,13 +510,13 @@ func handleOpenAIModels(w http.ResponseWriter, r *http.Request) {
 
 		if supportsGenerate {
 			geminiID := strings.TrimPrefix(m.Name, "models/")
-			
+
 			// Skip banned experimental models
-			if strings.Contains(geminiID, "image-generation") || 
-			   strings.Contains(geminiID, "-exp") || 
-			   strings.Contains(geminiID, "experimental") ||
-			   strings.Contains(geminiID, "2.0-flash-exp") ||
-			   strings.Contains(geminiID, "2.0-pro-exp") {
+			if strings.Contains(geminiID, "image-generation") ||
+				strings.Contains(geminiID, "-exp") ||
+				strings.Contains(geminiID, "experimental") ||
+				strings.Contains(geminiID, "2.0-flash-exp") ||
+				strings.Contains(geminiID, "2.0-pro-exp") {
 				continue
 			}
 
@@ -539,14 +576,14 @@ func handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 
 	// Use model directly if it's a valid Gemini model ID, otherwise use cached/default
 	model := req.Model
-	
+
 	// Check if it's a Gemini model ID and not banned
 	if strings.HasPrefix(model, "gemini-") {
 		// Block experimental models
-		if strings.Contains(model, "-exp") || 
-		   strings.Contains(model, "experimental") ||
-		   strings.Contains(model, "2.0-flash-exp") ||
-		   strings.Contains(model, "2.0-pro-exp") {
+		if strings.Contains(model, "-exp") ||
+			strings.Contains(model, "experimental") ||
+			strings.Contains(model, "2.0-flash-exp") ||
+			strings.Contains(model, "2.0-pro-exp") {
 			http.Error(w, "Experimental models are not allowed", 400)
 			return
 		}
@@ -619,8 +656,11 @@ func handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	// Skip cache when tools are enabled (Gemini API limitation)
-	// Tools are always enabled for OpenAI endpoint, so skip cache
+	// --- NOTE: This comment might be outdated. Gemini API supports CachedContent with Tools.
+	// --- If you want caching for OpenAI compatibility, you'd need to add:
+	// if cacheName != "" {
+	//     config.CachedContent = cacheName
+	// }
 	config.Tools = []*genai.Tool{
 		{FunctionDeclarations: fileTools},
 	}
@@ -652,19 +692,35 @@ func handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 			var funcResult map[string]any
 			args := funcCall.Args
 
+			// --- LINTER FIX START ---
 			if funcCall.Name == "list_files" {
-				p, _ := args["path"].(string)
-				funcResult = toolListFiles(p)
+				p, ok := args["path"].(string)
+				if !ok {
+					funcResult = map[string]any{"error": "invalid 'path' argument for list_files"}
+				} else {
+					funcResult = toolListFiles(p)
+				}
 			} else if funcCall.Name == "read_file" {
-				p, _ := args["path"].(string)
-				funcResult = toolReadFile(p)
+				p, ok := args["path"].(string)
+				if !ok {
+					funcResult = map[string]any{"error": "invalid 'path' argument for read_file"}
+				} else {
+					funcResult = toolReadFile(p)
+				}
 			} else if funcCall.Name == "write_file" {
-				p, _ := args["path"].(string)
-				c, _ := args["content"].(string)
-				funcResult = toolWriteFile(p, c)
+				p, okP := args["path"].(string)
+				c, okC := args["content"].(string)
+				if !okP {
+					funcResult = map[string]any{"error": "invalid 'path' argument for write_file"}
+				} else if !okC {
+					funcResult = map[string]any{"error": "invalid 'content' argument for write_file"}
+				} else {
+					funcResult = toolWriteFile(p, c)
+				}
 			} else {
 				funcResult = map[string]any{"error": "unknown tool"}
 			}
+			// --- LINTER FIX END ---
 
 			funcResponses = append(funcResponses, genai.Part{
 				FunctionResponse: &genai.FunctionResponse{
@@ -728,14 +784,14 @@ func handleOpenAIChat(w http.ResponseWriter, r *http.Request) {
 func handleOpenAIStream(w http.ResponseWriter, r *http.Request, userMsg, reqModel string) {
 	// Use model directly if it's a valid Gemini model ID, otherwise use cached/default
 	model := reqModel
-	
+
 	// Check if it's a Gemini model ID and not banned
 	if strings.HasPrefix(model, "gemini-") {
 		// Block experimental models
-		if strings.Contains(model, "-exp") || 
-		   strings.Contains(model, "experimental") ||
-		   strings.Contains(model, "2.0-flash-exp") ||
-		   strings.Contains(model, "2.0-pro-exp") {
+		if strings.Contains(model, "-exp") ||
+			strings.Contains(model, "experimental") ||
+			strings.Contains(model, "2.0-flash-exp") ||
+			strings.Contains(model, "2.0-pro-exp") {
 			fmt.Fprintf(w, "data: {\"error\": \"Experimental models are not allowed\"}\n\n")
 			return
 		}
@@ -806,7 +862,11 @@ func handleOpenAIStream(w http.ResponseWriter, r *http.Request, userMsg, reqMode
 		},
 	}
 
-	// Skip cache when tools are enabled (Gemini API limitation)
+	// --- NOTE: This comment might be outdated. Gemini API supports CachedContent with Tools.
+	// --- If you want caching for OpenAI compatibility, you'd need to add:
+	// if cacheName != "" {
+	//     config.CachedContent = cacheName
+	// }
 	config.Tools = []*genai.Tool{
 		{FunctionDeclarations: fileTools},
 	}
@@ -866,9 +926,15 @@ func handleOpenAIStream(w http.ResponseWriter, r *http.Request, userMsg, reqMode
 						},
 					},
 				}
-				data, _ := json.Marshal(chunk)
-				fmt.Fprintf(w, "data: %s\n\n", data)
-				flusher.Flush()
+				// --- LINTER FIX START ---
+				data, err := json.Marshal(chunk)
+				if err != nil {
+					logMsg("Error marshalling OpenAI stream chunk: %v", err)
+				} else {
+					fmt.Fprintf(w, "data: %s\n\n", data)
+					flusher.Flush()
+				}
+				// --- LINTER FIX END ---
 			}
 
 			// Execute function calls
@@ -877,19 +943,35 @@ func handleOpenAIStream(w http.ResponseWriter, r *http.Request, userMsg, reqMode
 				var funcResult map[string]any
 				args := funcCall.Args
 
+				// --- LINTER FIX START ---
 				if funcCall.Name == "list_files" {
-					p, _ := args["path"].(string)
-					funcResult = toolListFiles(p)
+					p, ok := args["path"].(string)
+					if !ok {
+						funcResult = map[string]any{"error": "invalid 'path' argument for list_files"}
+					} else {
+						funcResult = toolListFiles(p)
+					}
 				} else if funcCall.Name == "read_file" {
-					p, _ := args["path"].(string)
-					funcResult = toolReadFile(p)
+					p, ok := args["path"].(string)
+					if !ok {
+						funcResult = map[string]any{"error": "invalid 'path' argument for read_file"}
+					} else {
+						funcResult = toolReadFile(p)
+					}
 				} else if funcCall.Name == "write_file" {
-					p, _ := args["path"].(string)
-					c, _ := args["content"].(string)
-					funcResult = toolWriteFile(p, c)
+					p, okP := args["path"].(string)
+					c, okC := args["content"].(string)
+					if !okP {
+						funcResult = map[string]any{"error": "invalid 'path' argument for write_file"}
+					} else if !okC {
+						funcResult = map[string]any{"error": "invalid 'content' argument for write_file"}
+					} else {
+						funcResult = toolWriteFile(p, c)
+					}
 				} else {
 					funcResult = map[string]any{"error": "unknown tool"}
 				}
+				// --- LINTER FIX END ---
 
 				funcResponses = append(funcResponses, genai.Part{
 					FunctionResponse: &genai.FunctionResponse{
@@ -931,9 +1013,16 @@ func handleOpenAIStream(w http.ResponseWriter, r *http.Request, userMsg, reqMode
 					},
 				},
 			}
-			data, _ := json.Marshal(chunk)
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
+			// --- LINTER FIX START ---
+			data, err := json.Marshal(chunk)
+			if err != nil {
+				logMsg("Error marshalling OpenAI stream chunk: %v", err)
+			} else {
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+			}
+			// --- LINTER FIX END ---
+
 		}
 		break
 	}
@@ -1050,9 +1139,15 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 				},
 			},
 		}
-		data, _ := json.Marshal(chunk)
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
+		// --- LINTER FIX START ---
+		data, err := json.Marshal(chunk)
+		if err != nil {
+			logMsg("Error marshalling Gemini stream chunk: %v", err)
+		} else {
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		}
+		// --- LINTER FIX END ---
 	}
 
 	writeDebugResponse(fullResponse)
@@ -1170,7 +1265,6 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		req.SessionID = "default"
 	}
 
-	// Log incoming request
 	msgPreview := req.Message
 	if len(msgPreview) > 50 {
 		msgPreview = msgPreview[:50] + "..."
@@ -1181,118 +1275,96 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	history := sessions[req.SessionID]
 	mu.Unlock()
 
-	// Determine if we can use a cache
+	// --- FIX: Truncate history to prevent cache invalidation ---
+	if len(history) > MaxHistoryTurns {
+		truncatedCount := len(history) - MaxHistoryTurns
+		history = history[len(history)-MaxHistoryTurns:]
+		logMsg("[OPTIMIZATION] Chat history truncated by %d turns (keeping last %d) to ensure cache effectiveness.", truncatedCount, MaxHistoryTurns)
+	}
+	// --- END FIX ---
+
 	activeCID := ""
 	if req.CacheID != "" {
 		activeCID = req.CacheID
 	} else if cacheName != "" {
-		// Only use cache if models are compatible
-		// Skip cache for: image generation, experimental, different model families
 		isImageModel := strings.Contains(req.Model, "image")
-		isDifferentFamily := !strings.HasPrefix(req.Model, strings.TrimSuffix(cacheModel, "-001"))
-		if !isImageModel && !isDifferentFamily {
+		// We will now attempt to use the cache unless an image model is selected.
+		if !isImageModel {
 			activeCID = cacheName
 		}
 	}
 
-	// Build the generate content config
 	config := &genai.GenerateContentConfig{
 		Temperature: genai.Ptr[float32](0.2),
 		SafetySettings: []*genai.SafetySetting{
-			{
-				Category:  genai.HarmCategoryHarassment,
-				Threshold: genai.HarmBlockThresholdBlockNone,
-			},
-			{
-				Category:  genai.HarmCategoryHateSpeech,
-				Threshold: genai.HarmBlockThresholdBlockNone,
-			},
-			{
-				Category:  genai.HarmCategorySexuallyExplicit,
-				Threshold: genai.HarmBlockThresholdBlockNone,
-			},
-			{
-				Category:  genai.HarmCategoryDangerousContent,
-				Threshold: genai.HarmBlockThresholdBlockNone,
-			},
+			{Category: genai.HarmCategoryHarassment, Threshold: genai.HarmBlockThresholdBlockNone},
+			{Category: genai.HarmCategoryHateSpeech, Threshold: genai.HarmBlockThresholdBlockNone},
+			{Category: genai.HarmCategorySexuallyExplicit, Threshold: genai.HarmBlockThresholdBlockNone},
+			{Category: genai.HarmCategoryDangerousContent, Threshold: genai.HarmBlockThresholdBlockNone},
 		},
 	}
 
-	// Initialize tools slice
-	var tools []*genai.Tool
-
-	// Add Google Search grounding if requested
-	if req.UseSearch {
-		tools = append(tools, &genai.Tool{
-			GoogleSearch: &genai.GoogleSearch{},
-		})
-	}
-
-	// Note: Gemini API does not allow tools with CachedContent
-	// Skip cache when agentic mode or search is enabled (both use tools)
-	if activeCID != "" && !req.UseAgentic && !req.UseSearch {
+	// Apply cached content if available and not an image model
+	if activeCID != "" {
 		config.CachedContent = activeCID
-	}
-
-	// Add file tools only when agentic mode is enabled
-	if req.UseAgentic {
-		fileTools := []*genai.FunctionDeclaration{
-			{
-				Name:        "write_file",
-				Description: "Write or create a file with the specified content",
-				Parameters: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"path":    {Type: genai.TypeString, Description: "Relative path to the file"},
-						"content": {Type: genai.TypeString, Description: "Content to write to the file"},
-					},
-					Required: []string{"path", "content"},
-				},
-			},
+		// Note: Tools are already defined in the cached content, don't add them here
+		// Only Google Search can be added dynamically if needed (not in cache)
+		if req.UseSearch {
+			config.Tools = []*genai.Tool{
+				{GoogleSearch: &genai.GoogleSearch{}},
+			}
+		}
+	} else {
+		// No cache - define tools dynamically
+		var tools []*genai.Tool
+		if req.UseSearch {
+			tools = append(tools, &genai.Tool{GoogleSearch: &genai.GoogleSearch{}})
 		}
 
-		// Add read tools only when not using cache (cache already has file contents)
-		if activeCID == "" {
-			fileTools = append(fileTools, &genai.FunctionDeclaration{
-				Name:        "list_files",
-				Description: "List files in the current directory or subdirectory",
-				Parameters: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"path": {Type: genai.TypeString, Description: "Relative path to list (use '.' for current)"},
+		if req.UseAgentic {
+			fileTools := []*genai.FunctionDeclaration{
+				{
+					Name:        "write_file",
+					Description: "Write or create a file with the specified content",
+					Parameters: &genai.Schema{
+						Type: genai.TypeObject,
+						Properties: map[string]*genai.Schema{
+							"path":    {Type: genai.TypeString, Description: "Relative path to the file"},
+							"content": {Type: genai.TypeString, Description: "Content to write to the file"},
+						},
+						Required: []string{"path", "content"},
 					},
 				},
-			}, &genai.FunctionDeclaration{
-				Name:        "read_file",
-				Description: "Read the contents of a specific file",
-				Parameters: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"path": {Type: genai.TypeString, Description: "Relative path to the file"},
-					},
-					Required: []string{"path"},
+				// Always include list_files and read_file when agentic mode is on
+				{
+					Name:        "list_files",
+					Description: "List files in the current directory or subdirectory",
+					Parameters:  &genai.Schema{Type: genai.TypeObject, Properties: map[string]*genai.Schema{"path": {Type: genai.TypeString, Description: "Relative path to list (use '.' for current)"}}},
 				},
-			})
+				{
+					Name:        "read_file",
+					Description: "Read the contents of a specific file",
+					Parameters: &genai.Schema{
+						Type:       genai.TypeObject,
+						Properties: map[string]*genai.Schema{"path": {Type: genai.TypeString, Description: "Relative path to the file"}},
+						Required:   []string{"path"},
+					},
+				},
+			}
+			tools = append(tools, &genai.Tool{FunctionDeclarations: fileTools})
 		}
 
-		tools = append(tools, &genai.Tool{
-			FunctionDeclarations: fileTools,
-		})
+		if len(tools) > 0 {
+			config.Tools = tools
+		}
 	}
 
-	// Set tools if any were configured
-	if len(tools) > 0 {
-		config.Tools = tools
-	}
-
-	// Create a chat session with history
 	chat, err := client.Chats.Create(ctx, req.Model, config, history)
 	if err != nil {
 		http.Error(w, "Failed to create chat: "+err.Error(), 500)
 		return
 	}
 
-	// Initialize empty (will set fallback at end if needed)
 	finalResponse := ""
 	var toolLogs []string
 	var images []ImageData
@@ -1305,72 +1377,48 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("[DEBUG] Sending Message: Model=%s, CacheID=%s, HistoryCount=%d, Images=%d\n", req.Model, activeCID, len(history), len(req.Images))
 
-	// Build message parts (text + images)
 	var messageParts []genai.Part
-	
-	// Add text message if present
 	if req.Message != "" {
 		messageParts = append(messageParts, genai.Part{Text: req.Message})
 	}
-	
-	// Process images from frontend (base64 data URLs)
 	for _, imgData := range req.Images {
-		// Parse data URL: data:image/png;base64,<data>
 		if strings.HasPrefix(imgData, "data:") {
-			// Extract MIME type and base64 data
 			dataParts := strings.Split(imgData, ",")
 			if len(dataParts) == 2 {
-				header := dataParts[0] // data:image/png;base64
-				dataStr := dataParts[1] // base64 encoded data
-				
-				// Extract MIME type
-				mimeType := "image/png" // default
+				header, dataStr := dataParts[0], dataParts[1]
+				mimeType := "image/png"
 				if strings.Contains(header, "image/") {
 					mimeParts := strings.Split(header, ";")
 					if len(mimeParts) > 0 {
 						mimeType = strings.TrimPrefix(mimeParts[0], "data:")
 					}
 				}
-				
-				// Decode base64
 				imgBytes, err := base64.StdEncoding.DecodeString(dataStr)
 				if err == nil {
-					// Create Part with InlineData - check the genai package structure
-					imgPart := genai.Part{}
-					// Set InlineData field directly (it's a pointer field on Part)
-					imgPart.InlineData = &genai.Blob{
-						MIMEType: mimeType,
-						Data:     imgBytes,
-					}
+					imgPart := genai.Part{InlineData: &genai.Blob{MIMEType: mimeType, Data: imgBytes}}
 					messageParts = append(messageParts, imgPart)
 				}
 			}
 		}
 	}
-	
-	// If no parts, add empty text
 	if len(messageParts) == 0 {
 		messageParts = []genai.Part{{Text: "Hello"}}
 	}
 
-	// Send the message with images
 	res, err := chat.SendMessage(ctx, messageParts...)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	// UsageMetadata accumulates the total for the context but we want the delta for this request if possible.
 	if res.UsageMetadata != nil {
 		promptToks = int(res.UsageMetadata.PromptTokenCount)
 		respToks = int(res.UsageMetadata.CandidatesTokenCount)
 		totalToks = int(res.UsageMetadata.TotalTokenCount)
 	}
-
 	if len(res.Candidates) > 0 {
 		fmt.Printf("[DEBUG] FinishReason: %s\n", res.Candidates[0].FinishReason)
 	}
-
 	fmt.Printf("[DEBUG] Initial Response: Candidates=%d, Tokens=%d\n", len(res.Candidates), totalToks)
 
 	for {
@@ -1378,66 +1426,64 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		if len(res.Candidates) == 0 || res.Candidates[0].Content == nil {
 			break
 		}
-
-		// Check for function calls
 		funcCalls := res.FunctionCalls()
 		if len(funcCalls) > 0 {
+			fmt.Printf("[DEBUG] Function Calls Detected: %d tool(s) requested by model\n", len(funcCalls))
 			var funcResponses []genai.Part
 			for _, funcCall := range funcCalls {
 				toolName := funcCall.Name
+				fmt.Printf("[DEBUG] Executing Tool: %s\n", toolName)
 				toolLogs = append(toolLogs, fmt.Sprintf("Executed: %s", toolName))
-
 				var funcResult map[string]any
 				args := funcCall.Args
-
+				// --- LINTER FIX START ---
 				if toolName == "list_files" {
-					p, _ := args["path"].(string)
-					funcResult = toolListFiles(p)
+					p, ok := args["path"].(string)
+					if !ok {
+						funcResult = map[string]any{"error": "invalid 'path' argument for list_files"}
+					} else {
+						funcResult = toolListFiles(p)
+					}
 				} else if toolName == "read_file" {
-					p, _ := args["path"].(string)
-					funcResult = toolReadFile(p)
+					p, ok := args["path"].(string)
+					if !ok {
+						funcResult = map[string]any{"error": "invalid 'path' argument for read_file"}
+					} else {
+						funcResult = toolReadFile(p)
+					}
 				} else if toolName == "write_file" {
-					p, _ := args["path"].(string)
-					c, _ := args["content"].(string)
-					funcResult = toolWriteFile(p, c)
+					p, okP := args["path"].(string)
+					c, okC := args["content"].(string)
+					if !okP {
+						funcResult = map[string]any{"error": "invalid 'path' argument for write_file"}
+					} else if !okC {
+						funcResult = map[string]any{"error": "invalid 'content' argument for write_file"}
+					} else {
+						funcResult = toolWriteFile(p, c)
+					}
 				} else {
 					funcResult = map[string]any{"error": "unknown tool"}
 				}
-
-				funcResponses = append(funcResponses, genai.Part{
-					FunctionResponse: &genai.FunctionResponse{
-						Name:     toolName,
-						Response: funcResult,
-					},
-				})
+				// --- LINTER FIX END ---
+				funcResponses = append(funcResponses, genai.Part{FunctionResponse: &genai.FunctionResponse{Name: toolName, Response: funcResult}})
 			}
-
 			res, err = chat.SendMessage(ctx, funcResponses...)
 			if err != nil {
 				finalResponse = "Error after tool execution: " + err.Error()
 				break
 			}
-			// Update tokens and costs for the follow-up response
 			if res.UsageMetadata != nil {
-				// Each turn's candidates count should be added
 				respToks += int(res.UsageMetadata.CandidatesTokenCount)
 				totalToks = int(res.UsageMetadata.TotalTokenCount)
 			}
 			fmt.Printf("[DEBUG] Tool Return: Candidates=%d, totalToks=%d\n", len(res.Candidates), totalToks)
 			continue
 		}
-
-		// Extract text and images from response
 		finalResponse = res.Text()
-
-		// Check for image data in response parts
 		if len(res.Candidates) > 0 && res.Candidates[0].Content != nil {
 			for _, part := range res.Candidates[0].Content.Parts {
 				if part.InlineData != nil && part.InlineData.Data != nil {
-					images = append(images, ImageData{
-						MimeType: part.InlineData.MIMEType,
-						Data:     base64.StdEncoding.EncodeToString(part.InlineData.Data),
-					})
+					images = append(images, ImageData{MimeType: part.InlineData.MIMEType, Data: base64.StdEncoding.EncodeToString(part.InlineData.Data)})
 				}
 			}
 		}
@@ -1448,7 +1494,6 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	if finalResponse == "" && len(toolLogs) == 0 && len(images) == 0 {
 		finalResponse = "[System Warning: Model returned empty content. This may be a safety block or API glitch.]"
 	} else if finalResponse == "" && len(toolLogs) > 0 {
-		// If we executed tools but got no final text, avoiding making it look like an error
 		finalResponse = fmt.Sprintf("[Executed %d tool(s) but model provided no summary.]", len(toolLogs))
 	} else if finalResponse == "" && len(images) > 0 {
 		finalResponse = fmt.Sprintf("[Generated %d image(s)]", len(images))
@@ -1459,13 +1504,16 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	totalCost += requestCost
 	mu.Unlock()
 
-	// Log response
 	respPreview := finalResponse
 	if len(respPreview) > 50 {
 		respPreview = respPreview[:50] + "..."
 	}
-	logMsg("<<< /chat | Tokens: %din/%dout (%d total) | Tools: %d | Images: %d | Cost: $%.6f | Resp: %s",
-		promptToks, respToks, totalToks, len(toolLogs), len(images), requestCost, strings.ReplaceAll(respPreview, "\n", " "))
+	toolSummary := ""
+	if len(toolLogs) > 0 {
+		toolSummary = fmt.Sprintf(" [Tools: %v]", toolLogs)
+	}
+	logMsg("<<< /chat | Tokens: %din/%dout (%d total) | Tools: %d | Images: %d | Cost: $%.6f%s | Resp: %s",
+		promptToks, respToks, totalToks, len(toolLogs), len(images), requestCost, toolSummary, strings.ReplaceAll(respPreview, "\n", " "))
 
 	writeDebugResponse(finalResponse)
 
@@ -1574,7 +1622,20 @@ func calculateCost(modelName string, resp *genai.GenerateContentResponse) float6
 		return 0
 	}
 
-	inCost := (float64(resp.UsageMetadata.PromptTokenCount) / 1000000.0) * rates.In
+	// Calculate input cost with proper cached content pricing
+	// Cached tokens are 90% cheaper (1/10th the normal rate)
+	cachedTokens := int64(resp.UsageMetadata.CachedContentTokenCount)
+	totalPromptTokens := int64(resp.UsageMetadata.PromptTokenCount)
+	nonCachedTokens := totalPromptTokens - cachedTokens
+
+	// Non-cached tokens at full rate
+	inCost := (float64(nonCachedTokens) / 1000000.0) * rates.In
+	// Cached tokens at 10% of the rate (90% discount)
+	if cachedTokens > 0 {
+		inCost += (float64(cachedTokens) / 1000000.0) * (rates.In * 0.1)
+	}
+
+	// Output cost is always full rate
 	outCost := (float64(resp.UsageMetadata.CandidatesTokenCount) / 1000000.0) * rates.Out
 	return inCost + outCost
 }
@@ -1606,11 +1667,11 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 			id := strings.TrimPrefix(m.Name, "models/")
 
 			// Skip problematic experimental models
-			if strings.Contains(id, "image-generation") || 
-			   strings.Contains(id, "-exp") || 
-			   strings.Contains(id, "experimental") ||
-			   strings.Contains(id, "2.0-flash-exp") ||
-			   strings.Contains(id, "2.0-pro-exp") {
+			if strings.Contains(id, "image-generation") ||
+				strings.Contains(id, "-exp") ||
+				strings.Contains(id, "experimental") ||
+				strings.Contains(id, "2.0-flash-exp") ||
+				strings.Contains(id, "2.0-pro-exp") {
 				continue
 			}
 
